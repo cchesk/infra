@@ -52,7 +52,8 @@ User=ops
 WorkingDirectory=/home/ops/infra
 Environment=TERM=xterm-256color
 # The loop restarts claude if it ever exits; attach with: sudo -iu ops tmux attach -t claude
-ExecStart=/usr/bin/tmux new-session -d -s claude -c /home/ops/infra '/bin/bash -lc "while true; do claude remote-control --name apps-server --spawn same-dir; sleep 15; done"'
+# Starts in auto mode (a classifier approves routine actions); if this account/version rejects auto, falls back to default mode.
+ExecStart=/usr/bin/tmux new-session -d -s claude -c /home/ops/infra '/bin/bash -lc "while true; do claude remote-control --name apps-server --spawn same-dir --permission-mode auto || claude remote-control --name apps-server --spawn same-dir; sleep 15; done"'
 ExecStop=-/usr/bin/tmux kill-session -t claude
 
 [Install]

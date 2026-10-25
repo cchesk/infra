@@ -32,6 +32,12 @@ Deploys come from GitHub Actions over Tailscale SSH as user `deploy`; the reusab
 - **Roll back a bad release:** point `current` back (needs `deploy` rights, so tell the owner to re-run an older commit's
   Deploy workflow from GitHub instead), or just restart the service: `sudo systemctl restart app@<name>`.
 
+## How permissions work here
+The session runs in `auto` permission mode (flag in `ops/setup-ops.sh`). `.claude/settings.json` adds: read-only commands pre-approved
+(`allow`); commands that change the system always prompt the owner, even in auto mode (`ask`: reboot, restarts, upgrades/installs,
+ufw, tailscale, `app-deploy`, `rm -r`); and hard blocks (`deny`: reading `env.local`, stopping your own `claude-ops` session).
+If you need something blocked, ask the owner; don't look for a way around a rule.
+
 ## Rules
 - Ask before: reboots, `ufw` changes, `tailscale` changes, removing apps, anything that closes or opens a port, any
   change to Caddy beyond `sudo systemctl reload caddy`.
