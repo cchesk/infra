@@ -12,6 +12,13 @@ echo "== packages"
 apt-get update -qq
 apt-get install -y -qq tmux git curl needrestart >/dev/null
 
+# Never let package upgrades restart the tmux session Claude runs in (needrestart would otherwise restart it
+# mid-upgrade after glibc/openssl/systemd updates). Other services are still restarted automatically.
+mkdir -p /etc/needrestart/conf.d
+cat > /etc/needrestart/conf.d/50-claude-ops.conf <<'EOF'
+$nrconf{override_rc}{qr(^claude-ops)} = 0;
+EOF
+
 echo "== ops user"
 id ops >/dev/null 2>&1 || useradd --create-home --shell /bin/bash ops
 # Everything an operator needs, nothing more. Widen deliberately if you want to; `apt` and `systemctl` are already powerful.
