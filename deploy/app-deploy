@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Activates an uploaded release and publishes it at https://NAME.DOMAIN. CI runs it as
+#   sudo app-deploy NAME RELEASE static|node SPA(true|false)
+# after rsyncing the files to /srv/apps/NAME/releases/RELEASE. It is the only thing the deploy user may run as root,
+# so it validates every argument and leaves the app's own files (and its .app-start command) to the deploy user.
+set -euo pipefail
+die() { echo "app-deploy: $*" >&2; exit 1; }
+
+NAME=${1:-} REL=${2:-} TYPE=${3:-} SPA=${4:-false}
+[[ $NAME =~ ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$ ]] || die "bad app name '$NAME' (lowercase letters, digits, dashes)"
+[[ $REL =~ ^[A-Za-z0-9._-]+$ ]] || die "bad release '$REL'"
+[[ $TYPE == static || $TYPE == node ]] || die "type must be static or node"
+[[ $SPA == true || $SPA == false ]] || die "spa must be true or false"
+DOMAIN=$(cat /etc/apps/domain)
+DIR=/srv/apps/$NAME
+[ -d "$DIR/releases/$REL" ] || die "release $DIR/releases/$REL not uploaded"
+as_deploy() { runuser -u deploy -- env HOME=/home/deploy "$@"; }
+
+if [ "$TYPE" = node ]; then
+  [ -f "$DIR/releases/$REL/.app-start" ] || die ".app-start missing from the release"
+  if [ -f "$DIR/releases/$REL/package-lock.json" ]; then
+    (cd "$DIR/releases/$REL" && as_deploy npm ci --omit=dev --no-audit --no-fund --update-notifier=false --loglevel=error)
+  fi
+fi
+
+# Atomic switch to the new release.
+as_deploy ln -sfn "releases/$REL" "$DIR/.current.tmp"
+as_deploy mv -Tf "$DIR/.current.tmp" "$DIR/current"
+
+SITE="$NAME.$DOMAIN {
+	encode zstd gzip"
+if [ "$TYPE" = node ]; then
+  if [ ! -f "/etc/apps/$NAME.port" ]; then
+    last=$(cat /etc/apps/*.port 2>/dev/null | sort -n | tail -1 || true)
+    echo $(( ${last:-3999} + 1 )) > "/etc/apps/$NAME.port"
+  fi
+  PORT=$(cat "/etc/apps/$NAME.port")
+  echo "PORT=$PORT" > "/etc/apps/$NAME.env"
+  systemctl enable "app@$NAME" >/dev/null 2>&1
+  systemctl restart "app@$NAME"
+  SITE+="
+	reverse_proxy 127.0.0.1:$PORT"
+else
+  SITE+="
+	root * $DIR/current
+	@assets path /assets/*
+	header @assets Cache-Control \"public, max-age=31536000, immutable\""
+  [ "$SPA" = true ] && SITE+="
+	try_files {path} {path}/ /index.html"
+  SITE+="
+	file_server"
+fi
+SITE+="
+	header X-Content-Type-Options nosniff
+	header Referrer-Policy strict-origin-when-cross-origin
+}"
+
+CONF=/etc/caddy/apps/$NAME.caddy
+if [ "$(cat "$CONF" 2>/dev/null)" != "$SITE" ]; then
+  [ -f "$CONF" ] && cp "$CONF" "$CONF.bak"
+  echo "$SITE" > "$CONF"
+  if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+    if [ -f "$CONF.bak" ]; then mv "$CONF.bak" "$CONF"; else rm -f "$CONF"; fi
+    die "generated Caddy config is invalid; kept the previous one"
+  fi
+  rm -f "$CONF.bak"
+  systemctl reload caddy
+fi
+
+# Keep the 5 newest releases (names start with a UTC timestamp), and never the live one.
+(cd "$DIR/releases" && ls -1 | sort -r | tail -n +6 | while read -r old; do
+  [ "$old" = "$REL" ] || as_deploy rm -rf -- "$old"
+done)
+
+echo "https://$NAME.$DOMAIN"

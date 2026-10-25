@@ -1,0 +1,109 @@
+# Reusable deploy: publishes one app at https://<name>.<domain> on the apps server (deploy/README.md).
+# Use from any repo:
+#   jobs:
+#     deploy:
+#       uses: cchesk/infra/.github/workflows/deploy-app.yml@main
+#       with: { name: myapp, type: static, build: npm ci && npm run build, dir: dist }
+#       secrets:
+#         TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+#         TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+# The build runs with APPS_DOMAIN set (e.g. to point a site at https://myapp-api.$APPS_DOMAIN).
+# Without the two secrets the job skips with a warning instead of failing.
+name: Deploy app
+
+on:
+  workflow_call:
+    inputs:
+      name: { type: string, required: true, description: "Subdomain: lowercase letters, digits, dashes" }
+      type: { type: string, default: static, description: "static (files) or node (long-running process)" }
+      build: { type: string, default: "", description: "Shell command run before upload, e.g. npm ci && npm test && npm run build" }
+      dir: { type: string, default: ".", description: "Directory to upload (static: the built site, node: the app root)" }
+      start: { type: string, default: npm start, description: "node: command that starts the server; it must listen on $PORT" }
+      spa: { type: boolean, default: false, description: "static: serve index.html for unknown paths (client-side routing)" }
+      health_path: { type: string, default: /, description: "Path that must answer 2xx/3xx after the deploy" }
+      node_version: { type: string, default: "22" }
+      host: { type: string, default: apps, description: "Tailscale hostname of the server" }
+    secrets:
+      TS_OAUTH_CLIENT_ID: { required: false }
+      TS_OAUTH_SECRET: { required: false }
+    outputs:
+      url: { value: "${{ jobs.deploy.outputs.url }}" }
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-app-${{ inputs.name }}
+      cancel-in-progress: false
+    outputs:
+      url: ${{ steps.activate.outputs.url }}
+    steps:
+      - id: gate
+        env:
+          ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+        run: |
+          if [ -z "$ID" ]; then
+            echo "::warning::TS_OAUTH_CLIENT_ID / TS_OAUTH_SECRET are not set in this repo; skipping deploy of ${{ inputs.name }}"
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.gate.outputs.ok == 'true'
+        uses: actions/checkout@v4
+
+      - if: steps.gate.outputs.ok == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - if: steps.gate.outputs.ok == 'true'
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - if: steps.gate.outputs.ok == 'true'
+        name: Read server domain
+        env:
+          HOST: ${{ inputs.host }}
+        run: |
+          echo "SSH=ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes deploy@$HOST" >> "$GITHUB_ENV"
+          domain=$(ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes "deploy@$HOST" cat /etc/apps/domain)
+          echo "APPS_DOMAIN=$domain" >> "$GITHUB_ENV"
+
+      - if: steps.gate.outputs.ok == 'true' && inputs.build != ''
+        name: Build
+        run: ${{ inputs.build }}
+
+      - if: steps.gate.outputs.ok == 'true'
+        id: activate
+        name: Upload and activate
+        env:
+          NAME: ${{ inputs.name }}
+          TYPE: ${{ inputs.type }}
+          DIR: ${{ inputs.dir }}
+          START: ${{ inputs.start }}
+          SPA: ${{ inputs.spa }}
+          HOST: ${{ inputs.host }}
+        run: |
+          rel="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
+          [ "$TYPE" = node ] && printf '%s\n' "exec $START" > "$DIR/.app-start"
+          $SSH "mkdir -p /srv/apps/$NAME/releases"
+          rsync -az --exclude .git --exclude node_modules \
+            -e "ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes" \
+            "$DIR/" "deploy@$HOST:/srv/apps/$NAME/releases/$rel/"
+          url=$($SSH "sudo /usr/local/bin/app-deploy $NAME $rel $TYPE $SPA" | tail -1)
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "Deployed $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - if: steps.gate.outputs.ok == 'true'
+        name: Health check
+        env:
+          URL: ${{ steps.activate.outputs.url }}${{ inputs.health_path }}
+        run: |
+          # The first deploy of a new app also waits for its HTTPS certificate.
+          for i in $(seq 1 30); do curl -fsS -o /dev/null "$URL" && { echo "OK $URL"; exit 0; }; sleep 3; done
+          echo "::error::$URL is not answering"; exit 1
