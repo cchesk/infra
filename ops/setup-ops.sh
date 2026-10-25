@@ -33,7 +33,16 @@ chown ops:ops /home/ops/.profile
 
 echo "== this repo, as the agent's working folder"
 if [ -d /home/ops/infra/.git ]; then
-  runuser -u ops -- git -C /home/ops/infra pull --ff-only -q
+  g() { runuser -u ops -- git -C /home/ops/infra "$@"; }
+  g fetch -q origin main
+  branch=$(g rev-parse --abbrev-ref HEAD)
+  if [ "$branch" = main ]; then
+    g merge --ff-only -q origin/main || echo "   WARNING: ~/infra could not fast-forward; resolve it by hand"
+  else
+    # Never discard work the server's Claude (or you) did on a branch.
+    echo "   NOTE: ~/infra is on branch '$branch', not main, so it was left alone and may lack newer settings."
+    echo "   Review it, then: sudo -iu ops git -C ~/infra switch main && sudo -iu ops git -C ~/infra merge --ff-only origin/main"
+  fi
 else
   runuser -u ops -- git clone -q https://github.com/cchesk/infra /home/ops/infra
 fi
