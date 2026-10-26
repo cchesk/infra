@@ -3,8 +3,9 @@
 //   logo.svg, favicon.svg  the same adaptive mark: white in dark mode, near-black in light mode (CSS media query inside
 //                          the SVG, which works in <img> and as a favicon)
 //   logo-white.svg         the mark always white, for dark bars (the secrets page's top bar)
-//   logo.png, favicon.ico  neutral grey, readable on light and dark (Authelia's portal takes only PNG/ICO; .ico has
-//                          16, 32 and 48 px)
+//   favicon.ico            white (16, 32 and 48 px): the fallback for browsers without SVG favicons; pages don't
+//                          link it, browsers only ask for /favicon.ico themselves. Authelia's portal uses it too
+//   logo.png               neutral grey, readable on light and dark (Authelia's portal logo takes only PNG)
 //   apple-touch-icon.png   white on black: iOS fills transparency with black anyway
 // The same files are copied into the loginpage repo (public/assets/).
 // No dependencies: a tiny supersampling rasterizer plus a PNG/ICO writer. Run `node build.js` after changing it and
@@ -123,6 +124,6 @@ out('logo.svg', SVG);
 out('favicon.svg', SVG);
 out('logo-white.svg', SVG.replace(/<style>.*<\/style>\n/, '').replace('<path ', '<path fill="#fff" '));
 out('logo.png', png(256, render(256, 8)));
-out('favicon.ico', ico([16, 32, 48].map((size) => ({ size, data: png(size, render(size, size >= 32 ? 1 : 0)) }))));
+out('favicon.ico', ico([16, 32, 48].map((size) => ({ size, data: png(size, render(size, size >= 32 ? 1 : 0, { color: WHITE })) }))));
 out('apple-touch-icon.png', png(180, render(180, 36, { color: WHITE, bg: BLACK })));
 console.log('wrote logo.svg, favicon.svg, logo-white.svg, logo.png, favicon.ico, apple-touch-icon.png');
