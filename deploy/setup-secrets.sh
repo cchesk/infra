@@ -41,7 +41,7 @@ case ${1:-} in
     set_password "$user" >/dev/null
     # Setup phase over: a passkey alone (one factor) is enough from now on. Re-runs of this script keep it so.
     touch "$CONF/.locked"
-    sed -i 's/policy: two_factor/policy: one_factor/' "$CONF/configuration.yml"
+    sed -i -e 's/policy: two_factor/policy: one_factor/' -e '/experimental_enable_passkey_upgrade/d' "$CONF/configuration.yml"
     systemctl restart authelia
     echo "Password login for '$user' now uses a random password nobody knows. Sign in with your passkey."; exit ;;
 esac
@@ -75,7 +75,8 @@ FIRST_PW=""
 [ -f "$CONF/users.yml" ] && grep -q "^  $OWNER:$" "$CONF/users.yml" || FIRST_PW=$(set_password "$OWNER")
 
 POLICY=two_factor
-[ ! -e "$CONF/.locked" ] || POLICY=one_factor
+UPGRADE="  experimental_enable_passkey_upgrade: true"
+if [ -e "$CONF/.locked" ]; then POLICY=one_factor; UPGRADE=""; fi
 
 cat > "$CONF/configuration.yml" <<EOF
 # Managed by deploy/setup-secrets.sh. Login portal for https://$HOST, served at /auth. Secret keys are in ./secrets/.
@@ -122,6 +123,10 @@ totp:
 webauthn:
   display_name: '$HOST'
   enable_passkey_login: true
+  # Safari/iOS doesn't tell Authelia that a new credential is discoverable, so it isn't offered for passkey login.
+  # With this on, any credential may be used, and the first successful passkey login flags it as a passkey for good.
+  # Experimental, so only until "lock" (which removes it); it isn't needed once the credential has been flagged.
+$UPGRADE
   selection_criteria:
     discoverability: required
     user_verification: required
@@ -254,6 +259,9 @@ First sign-in (once):
   2. Open https://$HOST/auth/settings -> Two-Factor Authentication -> add a security key / passkey (Touch ID / Face ID).
      When it asks for a one-time code:  sudo bash $0 code
      Add a second passkey too (another device or a security key) so you can't lock yourself out.
-  3. Sign out, check that the passkey alone gets you in, then:  sudo bash $0 lock
+  3. Sign out and use "Sign in with a passkey" on the login page. For now it still asks for the password after the
+     passkey (that is the two-factor rule, and this first passkey login is what flags the credential as a passkey).
+     Do this on every device you registered, then:  sudo bash $0 lock
+     After that, the passkey alone is enough.
 EOF
 fi
