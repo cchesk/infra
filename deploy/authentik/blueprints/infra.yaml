@@ -1,0 +1,167 @@
+# Declarative authentik setup for this server, applied by the worker on start and whenever this file changes.
+# Source: github.com/cchesk/infra, deploy/authentik/blueprints/infra.yaml. Changes made to these objects in the admin UI
+# are overwritten on the next apply (except the owner user, which is only created once).
+# Values come from /opt/authentik/.env (written by deploy/setup-authentik.sh).
+version: 1
+metadata:
+  name: infra - login flow, social sign-in, owner and apps
+  labels:
+    blueprints.goauthentik.io/description: Managed by github.com/cchesk/infra (deploy/authentik).
+context:
+  domain: !Env INFRA_DOMAIN
+  owner: !Env [INFRA_OWNER, owner]
+entries:
+  # Built-in flows this file refers to must exist first.
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: { identifiers: { name: Default - Provider authorization flow (implicit consent) }, required: false }
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: { identifiers: { name: Default - Provider invalidation flow }, required: false }
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: { identifiers: { name: Default - Source authentication flow }, required: false }
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: { identifiers: { name: Default - WebAuthn MFA setup flow }, required: false }
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs: { identifiers: { name: Default - Brand }, required: false }
+
+  # ---- Passkeys: discoverable credentials with Touch ID / Face ID, so they work without typing a username.
+  - model: authentik_stages_authenticator_webauthn.authenticatorwebauthnstage
+    identifiers: { name: default-authenticator-webauthn-setup }
+    attrs:
+      resident_key_requirement: required
+      user_verification: required
+
+  # ---- Social sign-in. Each source switches itself on once its client ID and secret are in .env
+  # (sudo bash deploy/setup-authentik.sh google|github). No enrollment flow: a Google/GitHub account only gets in after
+  # its owner connected it to an existing user (user settings -> Connected services), so strangers can't sign up.
+  - model: authentik_sources_oauth.oauthsource
+    id: google
+    identifiers: { slug: google }
+    attrs:
+      name: Google
+      provider_type: google
+      enabled: !Condition [AND, !Env [GOOGLE_CLIENT_ID, ""], !Env [GOOGLE_CLIENT_SECRET, ""]]
+      consumer_key: !Env [GOOGLE_CLIENT_ID, not-configured]
+      consumer_secret: !Env [GOOGLE_CLIENT_SECRET, not-configured]
+      authentication_flow: !Find [authentik_flows.flow, [slug, default-source-authentication]]
+      user_matching_mode: identifier
+      promoted: true
+  - model: authentik_sources_oauth.oauthsource
+    id: github
+    identifiers: { slug: github }
+    attrs:
+      name: GitHub
+      provider_type: github
+      enabled: !Condition [AND, !Env [GITHUB_CLIENT_ID, ""], !Env [GITHUB_CLIENT_SECRET, ""]]
+      consumer_key: !Env [GITHUB_CLIENT_ID, not-configured]
+      consumer_secret: !Env [GITHUB_CLIENT_SECRET, not-configured]
+      authentication_flow: !Find [authentik_flows.flow, [slug, default-source-authentication]]
+      user_matching_mode: identifier
+      promoted: true
+
+  # ---- The "login" flow, rendered by our own login page (github.com/cchesk/loginpage at /login/): one identification
+  # step that takes username or email plus password, a passkey, or a social source; then the session starts.
+  - model: authentik_flows.flow
+    id: login-flow
+    identifiers: { slug: login }
+    attrs:
+      name: Sign in
+      title: Sign in
+      designation: authentication
+      authentication: none
+  - model: authentik_stages_password.passwordstage
+    id: login-password
+    identifiers: { name: login-password }
+    attrs:
+      backends: [authentik.core.auth.InbuiltBackend]
+      failed_attempts_before_cancel: 5
+  - model: authentik_stages_authenticator_validate.authenticatorvalidatestage
+    id: login-passkey
+    identifiers: { name: login-passkey }
+    attrs:
+      device_classes: [webauthn]
+      not_configured_action: deny
+      webauthn_user_verification: required
+  - model: authentik_stages_identification.identificationstage
+    id: login-identification
+    identifiers: { name: login-identification }
+    attrs:
+      user_fields: [username, email]
+      password_stage: !KeyOf login-password
+      webauthn_stage: !KeyOf login-passkey
+      case_insensitive_matching: true
+      pretend_user_exists: true
+      show_matched_user: false
+      enable_remember_me: false
+      sources: [!KeyOf google, !KeyOf github]
+  - model: authentik_stages_user_login.userloginstage
+    id: login-session
+    identifiers: { name: login-session }
+    attrs:
+      session_duration: hours=8
+  - model: authentik_flows.flowstagebinding
+    identifiers: { target: !KeyOf login-flow, stage: !KeyOf login-identification, order: 10 }
+  - model: authentik_flows.flowstagebinding
+    identifiers: { target: !KeyOf login-flow, stage: !KeyOf login-session, order: 100 }
+
+  # ---- Brand: our flow as the default login, our logo and favicon (served by Caddy from the login page).
+  - model: authentik_brands.brand
+    identifiers: { domain: authentik-default }
+    attrs:
+      branding_title: !Context domain
+      branding_logo: /login/assets/logo.svg
+      branding_favicon: /login/assets/favicon.svg
+      flow_authentication: !KeyOf login-flow
+
+  # ---- People. The owner is created once (the password is only the bootstrap one; add a passkey, then
+  # "setup-authentik.sh lock" removes it). Admin rights come from the built-in "authentik Admins" group.
+  - model: authentik_core.user
+    id: owner
+    state: created
+    identifiers: { username: !Context owner }
+    attrs:
+      name: !Context owner
+      email: !Env INFRA_OWNER_EMAIL
+      type: internal
+      password: !Env INFRA_OWNER_PASSWORD
+      groups:
+        - !Find [authentik_core.group, [name, authentik Admins]]
+  # One group per app; membership is what grants access (see the policy bindings below).
+  - model: authentik_core.group
+    id: secrets-admins
+    identifiers: { name: secrets-admins }
+    attrs:
+      users: [!KeyOf owner]
+
+  # ---- Apps behind the embedded outpost (forward auth from Caddy). Add more apps like this one.
+  - model: authentik_providers_proxy.proxyprovider
+    id: secrets-provider
+    identifiers: { name: secrets }
+    attrs:
+      mode: forward_single
+      external_host: !Format ["https://secrets.%s", !Context domain]
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      access_token_validity: hours=8
+  - model: authentik_core.application
+    id: secrets-app
+    identifiers: { slug: secrets }
+    attrs:
+      name: Secrets
+      provider: !KeyOf secrets-provider
+      meta_launch_url: !Format ["https://secrets.%s/", !Context domain]
+      meta_description: Environment secrets for the node apps
+      policy_engine_mode: any
+  - model: authentik_policies.policybinding
+    identifiers: { target: !KeyOf secrets-app, group: !KeyOf secrets-admins, order: 0 }
+
+  # The embedded outpost runs inside the authentik server (port 9000) and answers Caddy's forward_auth.
+  - model: authentik_outposts.outpost
+    identifiers: { managed: goauthentik.io/outposts/embedded }
+    attrs:
+      name: authentik Embedded Outpost
+      type: proxy
+      providers: [!KeyOf secrets-provider]
+      config:
+        authentik_host: !Format ["https://auth.%s/", !Context domain]
+        authentik_host_insecure: false
+        authentik_host_browser: ""

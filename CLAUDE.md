@@ -12,6 +12,8 @@ and say plainly what you did and what you found. This repo (`cchesk/infra`) is t
 | `/etc/apps/secrets/<name>.env` | Secrets set on `https://secrets.cchesk.com` (root-only; loaded after `env.local`). Never read |
 | `secrets-ui.service`, `authelia.service` | That page and its passkey login (`deploy/setup-secrets.sh`, optional). To give an app a secret, send the owner to the page |
 | `~/loginpage` → `/opt/loginpage` | Login page in front of it (`cchesk/loginpage`, served at `/login/`; Authelia at `/authelia/`). Update: `git -C ~/loginpage pull`, then the owner re-runs `setup-secrets.sh` |
+| `/opt/authentik`, `authentik.service` | authentik at `https://auth.<domain>` in Docker (`deploy/setup-authentik.sh`, optional; replaces Authelia after its `cutover`). Login page copy in `/opt/loginpage-authentik`. `/opt/authentik/.env` holds its secrets: never read. Logs: `sudo journalctl -t authentik-server -t authentik-worker` |
+| `/etc/apps/auth-backend` | `authelia` or `authentik`: which one guards `secrets.<domain>` |
 | `/etc/caddy/apps/<name>.caddy` | Generated per-app Caddy site; written by `app-deploy`. Don't hand-edit |
 | `/etc/apps/domain`, `<name>.port`, `<name>.env` | Domain and per-app port/PORT. Do not edit by hand |
 | `app@<name>.service` | systemd unit of each node app (static sites have no service) |

@@ -1,0 +1,73 @@
+# authentik for https://auth.<domain>, installed to /opt/authentik by deploy/setup-authentik.sh (which also writes .env).
+# Based on authentik's official docker-compose.yml (2026.8), with these changes:
+#   - the server port is bound to 127.0.0.1 only (Docker bypasses ufw), and 9443 isn't published: Caddy does TLS
+#   - no Docker socket in the worker and no root user: we only use the embedded outpost, so authentik never needs to
+#     manage containers (a mounted docker.sock would amount to root on this server)
+#   - our blueprints (deploy/authentik/blueprints) are mounted at /blueprints/custom and applied automatically
+#   - logs go to journald:  sudo journalctl -t authentik-server -t authentik-worker -t authentik-postgresql
+services:
+  postgresql:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    env_file: [.env]
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${PG_PASS:?database password required}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 30s
+      retries: 5
+      start_period: 20s
+      timeout: 5s
+    volumes:
+      - database:/var/lib/postgresql/data
+    logging:
+      driver: journald
+      options: { tag: authentik-postgresql }
+
+  server:
+    image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2026.8.5}
+    command: server
+    restart: unless-stopped
+    depends_on:
+      postgresql: { condition: service_healthy }
+    env_file: [.env]
+    environment: &authentik-env
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_PASS}
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:?secret key required}
+    ports:
+      - "127.0.0.1:9000:9000"
+    shm_size: 512mb
+    volumes:
+      - ./data:/data
+      - ./custom-templates:/templates
+      - ./blueprints:/blueprints/custom:ro
+    logging:
+      driver: journald
+      options: { tag: authentik-server }
+
+  worker:
+    image: ${AUTHENTIK_IMAGE:-ghcr.io/goauthentik/server}:${AUTHENTIK_TAG:-2026.8.5}
+    command: worker
+    restart: unless-stopped
+    depends_on:
+      postgresql: { condition: service_healthy }
+    env_file: [.env]
+    environment: *authentik-env
+    shm_size: 512mb
+    volumes:
+      - ./data:/data
+      - ./certs:/certs
+      - ./custom-templates:/templates
+      - ./blueprints:/blueprints/custom:ro
+    logging:
+      driver: journald
+      options: { tag: authentik-worker }
+
+volumes:
+  database:
+    driver: local

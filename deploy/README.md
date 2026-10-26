@@ -161,4 +161,43 @@ password fields, so password managers stay out.
 Adding another passkey later needs `code` again (as root over SSH). Re-running the script keeps users, passkeys and
 keys; `deploy/app-secret`, `deploy/secrets-ui/` and the login page (from `~ops/loginpage`) are re-installed.
 
+## Optional: authentik (replaces Authelia; Google and GitHub sign-in)
+
+`deploy/setup-authentik.sh` runs [authentik](https://goauthentik.io) 2026.8 at `https://auth.<domain>` in Docker
+(`/opt/authentik`, `authentik.service`), next to Authelia until you switch over. Everything is declared in
+`deploy/authentik/blueprints/infra.yaml`, applied by authentik on start:
+
+- **Login flow `login`**, rendered by our login page (`/opt/loginpage-authentik`, Caddy sends `/if/flow/login/` there):
+  username or email with password, a passkey (Touch ID / Face ID), or Google / GitHub.
+- **Google and GitHub sources**, switched off until their credentials are set. There's no sign-up: a Google or GitHub
+  account only signs in after you connected it to your user once, so strangers can't get in.
+- **Owner** (`owner`, in `authentik Admins` and `secrets-admins`) and **apps**: `secrets` is a proxy provider in
+  forward-auth mode on authentik's embedded outpost, open to the `secrets-admins` group only. More apps: add a provider,
+  an application, a group binding and the provider on the outpost, the same way.
+- **Docker differences from upstream:** port 9000 is bound to `127.0.0.1` (Docker would bypass ufw), no Docker socket
+  and no root in the containers, logs in journald (`sudo journalctl -t authentik-server -t authentik-worker`).
+  It needs about 1 to 1.5 GB of RAM.
+
+Sessions are per host: authentik's at `auth.<domain>`, and each app gets its own outpost cookie, so apps never see
+each other's (or authentik's) session.
+
+```bash
+sudo bash ~ops/infra/deploy/setup-authentik.sh you@example.com   # install; prints the owner's one-time password
+sudo bash ~ops/infra/deploy/setup-authentik.sh cutover           # secrets.<domain> -> authentik (Authelia stops)
+sudo bash ~ops/infra/deploy/setup-authentik.sh rollback          # back to Authelia
+sudo bash ~ops/infra/deploy/setup-authentik.sh lock              # remove the owner's password (passkey only)
+sudo bash ~ops/infra/deploy/setup-authentik.sh google            # set Google's client ID and secret (prompts)
+sudo bash ~ops/infra/deploy/setup-authentik.sh github            # set GitHub's client ID and secret (prompts)
+```
+
+**Google:** Google Cloud console -> APIs & Services -> OAuth consent screen (External, app name, your email; scopes
+`openid`, `email`, `profile`) -> Credentials -> Create credentials -> OAuth client ID -> Web application, with
+authorized redirect URI `https://auth.<domain>/source/oauth/callback/google/`. **GitHub:** Settings -> Developer
+settings -> OAuth Apps -> New OAuth App, homepage `https://auth.<domain>`, callback URL
+`https://auth.<domain>/source/oauth/callback/github/`, then generate a client secret. Run the matching command above,
+then connect the account once at `https://auth.<domain>/if/user/#/settings` -> Connected services.
+
+Upgrades: change `AUTHENTIK_TAG` in `deploy/authentik/docker-compose.yml` one release at a time (read authentik's
+release notes first), then re-run the script. Secrets live in `/opt/authentik/.env` (root-only).
+
 Note: other repos run this workflow straight from `cchesk/infra@main`, so changes here affect every app.
