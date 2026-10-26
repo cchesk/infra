@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Optional: a write-only web page for app secrets at https://secrets.<domain>, behind a passkey-only Authelia login.
+# Optional: a web page for app secrets at https://secrets.<domain>, behind a passkey-only Authelia login.
 #   sudo bash ~ops/infra/deploy/setup-secrets.sh [USER]   install or update (USER: login name, default "owner")
 #   sudo bash ~ops/infra/deploy/setup-secrets.sh code     show the one-time code Authelia "emailed" (passkey setup)
 #   sudo bash ~ops/infra/deploy/setup-secrets.sh lock     replace the bootstrap password with an unknown random one
@@ -165,7 +165,7 @@ echo "== secrets UI and its root helper"
 id secrets-ui >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin secrets-ui
 install -m 755 "$HERE/app-secret" /usr/local/bin/app-secret
 install -d -m 755 /opt/secrets-ui
-install -m 644 "$HERE/secrets-ui/server.js" /opt/secrets-ui/server.js
+install -m 644 "$HERE/secrets-ui/server.js" "$HERE/secrets-ui/app.js" /opt/secrets-ui/
 install -d -m 700 /etc/apps/secrets
 echo "secrets-ui ALL=(root) NOPASSWD: /usr/local/bin/app-secret" > /etc/sudoers.d/secrets-ui
 chmod 440 /etc/sudoers.d/secrets-ui
@@ -174,7 +174,7 @@ visudo -cf /etc/sudoers.d/secrets-ui >/dev/null
 cat > /etc/systemd/system/secrets-ui.service <<EOF
 # Managed by deploy/setup-secrets.sh
 [Unit]
-Description=Write-only secrets page for https://$HOST
+Description=Secrets page for https://$HOST
 After=network.target
 
 [Service]
@@ -231,7 +231,8 @@ $HOST {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
 		X-Frame-Options DENY
-		Referrer-Policy no-referrer
+		# Not no-referrer: with that, browsers send "Origin: null" on the page's own saves and the origin check fails.
+		Referrer-Policy same-origin
 	}
 }
 EOF
