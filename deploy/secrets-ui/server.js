@@ -1,10 +1,11 @@
 'use strict';
-// Write-only web UI for app secrets, served at https://secrets.<domain> (see deploy/setup-secrets.sh).
+// Secrets page for the node apps, served at https://secrets.<domain> (see deploy/setup-secrets.sh).
 // Caddy only forwards a request here after Authelia's passkey login, and sets Remote-User. This server listens on a
-// unix socket that only Caddy can open, so nothing else on the box can fake that header. Values are never shown;
-// all changes go through the root helper app-secret, which can only write /etc/apps/secrets/<app>.env.
+// unix socket that only Caddy can open, so nothing else on the box can fake that header. All reads and writes go
+// through the root helper app-secret, which can only touch /etc/apps/secrets/<app>.env and restart app@<app>.
 const http = require('node:http');
 const fs = require('node:fs');
+const path = require('node:path');
 const { execFile } = require('node:child_process');
 
 const SOCK = '/run/secrets-ui/http.sock';
@@ -12,116 +13,141 @@ const HELPER = '/usr/local/bin/app-secret';
 const { OWNER, HOST } = process.env;
 if (!OWNER || !HOST) throw new Error('OWNER and HOST must be set');
 const ORIGIN = `https://${HOST}`;
+const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+const APP_JS = fs.readFileSync(path.join(__dirname, 'app.js'));
 
 function helper(args, input = '') {
   return new Promise((resolve, reject) => {
-    const child = execFile('sudo', ['-n', HELPER, ...args], { timeout: 60000 }, (err, stdout, stderr) => {
-      if (err) reject(new Error((stderr || err.message).trim()));
-      else resolve(stdout.trim());
+    const child = execFile('sudo', ['-n', HELPER, ...args], { timeout: 60000, maxBuffer: 4 << 20 }, (err, stdout, stderr) => {
+      if (err) reject(new Error((stderr || err.message).trim().replace(/^app-secret: /, '')));
+      else resolve(stdout);
     });
     child.stdin.end(input);
   });
 }
 
+async function loadApp(name) {
+  const secrets = (await helper(['get', name])).split('\n').filter(Boolean).map((line) => {
+    const i = line.indexOf('=');
+    return { key: line.slice(0, i), value: line.slice(i + 1) };
+  });
+  return { name, secrets };
+}
+
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
-function page(apps, msg, isError) {
-  const cards = apps.map(({ name, keys }) => `
-<section>
-  <h2>${esc(name)}</h2>
-  ${keys.length ? `<ul>${keys.map((k) => `
-    <li><code>${esc(k)}</code> <span class="muted">set</span>
-      <details><summary>remove</summary>
-        <form method="post" action="/unset"><input type="hidden" name="app" value="${esc(name)}">
-          <input type="hidden" name="key" value="${esc(k)}"><button>Remove ${esc(k)}</button></form>
-      </details></li>`).join('')}</ul>` : '<p class="muted">No secrets set here yet.</p>'}
-  <form method="post" action="/set" autocomplete="off">
-    <input type="hidden" name="app" value="${esc(name)}">
-    <input name="key" placeholder="KEY_NAME" required pattern="[A-Za-z_][A-Za-z0-9_]{0,127}" autocapitalize="characters" spellcheck="false">
-    <input name="value" type="password" placeholder="value" required autocomplete="new-password">
-    <label><input type="checkbox" name="restart" value="1" checked> restart app</label>
-    <button>Save</button>
-  </form>
-  <form method="post" action="/restart"><input type="hidden" name="app" value="${esc(name)}"><button class="secondary">Restart app@${esc(name)}</button></form>
-</section>`).join('');
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>App secrets</title>
 <style>
 :root{color-scheme:light dark;--bg:#fafafa;--fg:#1a1a1a;--card:#fff;--line:#ddd;--muted:#777;--accent:#2457d6;--bad:#b3261e;--good:#1e7a3c}
 @media (prefers-color-scheme:dark){:root{--bg:#141414;--fg:#eee;--card:#1e1e1e;--line:#333;--muted:#999;--accent:#7aa2ff;--bad:#ff8a80;--good:#7bd88f}}
 body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
-main{max-width:640px;margin:0 auto;padding:16px}
+main{max-width:720px;margin:0 auto;padding:16px}
+h1{font-size:1.4rem;margin:.2rem 0}h2{font-size:1.1rem;margin:0}a{color:var(--accent)}
 section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:16px 0}
-h1{font-size:1.4rem}h2{font-size:1.1rem;margin:.2rem 0}
-ul{padding-left:1.2rem}li{margin:.3rem 0}details{display:inline}summary{cursor:pointer;color:var(--muted);display:inline}
-form{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
-input[name=key],input[name=value]{flex:1 1 180px;min-width:0;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
+.head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.rows{list-style:none;padding:0;margin:8px 0}
+.rows li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 0;border-top:1px solid var(--line)}
+.rows li:first-child{border-top:0}
+.key{font-weight:600;overflow-wrap:anywhere}
+.value{flex:1 1 140px;min-width:0;font-family:ui-monospace,Menlo,monospace;overflow-wrap:anywhere;color:var(--muted)}
+.value.shown{color:var(--fg)}
+.actions{display:flex;gap:6px;margin-left:auto}
+.edit li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}
+.edit .key-input{grid-column:1/-1}
+@media (min-width:560px){.edit li{grid-template-columns:minmax(0,2fr) minmax(0,3fr) auto auto}.edit .key-input{grid-column:auto}}
+input:not([type=checkbox]){width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:16px ui-monospace,Menlo,monospace}
+.masked{-webkit-text-security:disc;text-security:disc}
 button{padding:8px 14px;border:0;border-radius:6px;background:var(--accent);color:#fff;font:inherit;cursor:pointer}
+button:disabled{opacity:.6}
 button.secondary{background:transparent;color:var(--accent);border:1px solid var(--line)}
-.muted{color:var(--muted)}.msg{padding:8px 12px;border-radius:6px;border:1px solid}.ok{color:var(--good)}.err{color:var(--bad)}
+button.icon{background:transparent;color:var(--fg);border:1px solid var(--line);width:38px;height:38px;padding:0;display:inline-grid;place-items:center}
+button.icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.footer{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-top:12px}
+.footer .buttons{display:flex;gap:8px;margin-left:auto}
+.muted{color:var(--muted)}.msg{margin:8px 0 0}.ok{color:var(--good)}.err{color:var(--bad)}
 </style></head><body><main>
 <h1>App secrets</h1>
-<p class="muted">Signed in as ${esc(OWNER)}. Values are write-only: saving replaces a key, nothing is ever shown.
-<a href="/auth/logout">Sign out</a></p>
-${msg ? `<p class="msg ${isError ? 'err' : 'ok'}">${esc(msg)}</p>` : ''}
-${cards || '<p>No node apps on this server.</p>'}
-</main></body></html>`;
-}
+<p class="muted">Signed in as ${esc(OWNER)} · <a href="/auth/logout">Sign out</a></p>
+<div id="apps"><p class="muted">Loading…</p></div>
+</main><script src="/app.js"></script></body></html>`;
 
-function send(res, status, body, headers = {}) {
-  res.writeHead(status, {
-    'Content-Type': 'text/html; charset=utf-8',
-    'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
-    ...headers,
-  });
+const SECURITY_HEADERS = {
+  'Cache-Control': 'no-store',
+  'Content-Security-Policy': "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
+};
+
+function send(res, status, body, type = 'text/html; charset=utf-8') {
+  res.writeHead(status, { 'Content-Type': type, ...SECURITY_HEADERS });
   res.end(body);
 }
+const json = (res, status, obj) => send(res, status, JSON.stringify(obj), 'application/json');
 
-function readForm(req) {
+// Only the page itself may write: same origin, and JSON (which a cross-site form can't send).
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (origin && origin !== 'null') return origin === ORIGIN;
+  return req.headers['sec-fetch-site'] === 'same-origin';
+}
+
+function readJson(req) {
   return new Promise((resolve, reject) => {
     let body = '';
     req.setEncoding('utf8');
-    req.on('data', (c) => { body += c; if (body.length > 20000) { reject(new Error('form too large')); req.destroy(); } });
-    req.on('end', () => resolve(new URLSearchParams(body)));
+    req.on('data', (c) => { body += c; if (body.length > 300000) { reject(new Error('request too large')); req.destroy(); } });
+    req.on('end', () => { try { resolve(JSON.parse(body)); } catch { reject(new Error('bad JSON')); } });
     req.on('error', reject);
   });
 }
 
-const back = (res, msg, err) => send(res, 303, '', { Location: `/?${new URLSearchParams(err ? { err: msg } : { msg })}` });
+function validate(body) {
+  if (typeof body?.app !== 'string' || !Array.isArray(body.secrets)) return 'bad request';
+  const seen = new Set();
+  for (const s of body.secrets) {
+    if (typeof s?.key !== 'string' || typeof s.value !== 'string') return 'bad request';
+    if (!KEY_RE.test(s.key)) return `bad key "${s.key}" (letters, digits, underscore; not starting with a digit)`;
+    if (s.key === 'PORT') return 'PORT is assigned by the deploy';
+    if (seen.has(s.key)) return `${s.key} appears twice`;
+    if (/[\0\r\n]/.test(s.value)) return `the value of ${s.key} must be a single line`;
+    if (s.value.length > 8192) return `the value of ${s.key} is longer than 8 KiB`;
+    seen.add(s.key);
+  }
+  return null;
+}
 
 const server = http.createServer(async (req, res) => {
   try {
-    if (req.headers['remote-user'] !== OWNER) return send(res, 403, 'Forbidden');
-    const url = new URL(req.url, ORIGIN);
-    if (req.method === 'GET' && url.pathname === '/') {
-      const apps = (await helper(['list'])).split('\n').filter(Boolean).map((line) => {
-        const [name, keys = ''] = line.split('\t');
-        return { name, keys: keys.split(' ').filter(Boolean) };
-      });
-      const err = url.searchParams.get('err');
-      return send(res, 200, page(apps, err || url.searchParams.get('msg'), Boolean(err)));
+    if (req.headers['remote-user'] !== OWNER) return send(res, 403, 'Forbidden', 'text/plain');
+    const { pathname } = new URL(req.url, ORIGIN);
+    if (req.method === 'GET' && pathname === '/') return send(res, 200, PAGE);
+    if (req.method === 'GET' && pathname === '/app.js') return send(res, 200, APP_JS, 'text/javascript; charset=utf-8');
+    if (req.method === 'GET' && pathname === '/api/apps') {
+      const names = (await helper(['apps'])).split('\n').filter(Boolean);
+      return json(res, 200, { apps: await Promise.all(names.map(loadApp)) });
     }
-    if (req.method !== 'POST') return send(res, 404, 'Not found');
-    // Cross-site form posts: only accept the browser's own same-origin submissions.
-    if (req.headers.origin !== ORIGIN) return send(res, 403, 'Bad origin');
-    const f = await readForm(req);
-    const app = f.get('app') || '', key = f.get('key') || '';
-    try {
-      if (url.pathname === '/set') {
-        let msg = await helper(['set', app, key], f.get('value') || '');
-        if (f.get('restart')) msg += '; ' + await helper(['restart', app]);
-        return back(res, msg);
+    if (req.method === 'POST' && pathname === '/api/save') {
+      if (!sameOrigin(req)) return json(res, 403, { error: 'Bad origin' });
+      if (!(req.headers['content-type'] || '').startsWith('application/json')) return json(res, 415, { error: 'JSON only' });
+      const body = await readJson(req);
+      const problem = validate(body);
+      if (problem) return json(res, 400, { error: problem });
+      let message;
+      try {
+        message = (await helper(['put', body.app], body.secrets.map((s) => `${s.key}=${s.value}\n`).join(''))).trim();
+      } catch (e) {
+        return json(res, 400, { error: e.message });
       }
-      if (url.pathname === '/unset') return back(res, await helper(['unset', app, key]));
-      if (url.pathname === '/restart') return back(res, await helper(['restart', app]));
-    } catch (e) {
-      return back(res, e.message, true);
+      let error = false;
+      if (body.restart) {
+        try { message += '; ' + (await helper(['restart', body.app])).trim(); }
+        catch (e) { message += `, but the restart failed: ${e.message}`; error = true; }
+      }
+      return json(res, 200, { message, error, app: await loadApp(body.app) });
     }
-    return send(res, 404, 'Not found');
+    return send(res, 404, 'Not found', 'text/plain');
   } catch (e) {
     console.error(e);
-    send(res, 500, 'Error');
+    json(res, 500, { error: 'Server error' });
   }
 });
 
