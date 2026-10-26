@@ -143,9 +143,11 @@ Group=kratos
 SupplementaryGroups=kratos-admin
 ExecStartPre=/usr/local/bin/kratos migrate sql -e --yes --config $ETC/kratos.yml
 ExecStart=/usr/local/bin/kratos serve --config $ETC/kratos.yml
-# /run/kratos holds the admin socket (group kratos-admin, mode 0660; see kratos.yml).
+# /run/kratos holds the admin socket. The socket is group kratos-admin, mode 0660 (see kratos.yml), and that is what
+# keeps everyone else out; the folder must stay traversable (0755) because its owner and group are kratos, and the
+# gateway (group kratos-admin) is neither.
 RuntimeDirectory=kratos
-RuntimeDirectoryMode=0750
+RuntimeDirectoryMode=0755
 Restart=always
 RestartSec=5
 NoNewPrivileges=yes
@@ -212,6 +214,14 @@ systemctl enable kratos auth-gateway >/dev/null 2>&1
 systemctl restart kratos
 wait_ready
 systemctl restart auth-gateway
+
+# The gateway must reach Kratos' admin API through the socket, and nobody else may (apps run as other users).
+if ! runuser -u auth-gateway -- curl -fsS -o /dev/null --unix-socket "$ADMIN_SOCK" http://localhost/admin/health/ready; then
+  echo "the auth gateway can't reach Kratos' admin socket $ADMIN_SOCK:"; ls -ld /run/kratos "$ADMIN_SOCK"; exit 1
+fi
+if runuser -u nobody -- curl -fsS -o /dev/null --unix-socket "$ADMIN_SOCK" http://localhost/admin/health/ready 2>/dev/null; then
+  echo "SECURITY: an unprivileged user can reach Kratos' admin API through $ADMIN_SOCK"; ls -ld /run/kratos "$ADMIN_SOCK"; exit 1
+fi
 
 echo "== people"
 FIRST_PW=""
