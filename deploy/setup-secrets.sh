@@ -188,7 +188,7 @@ echo "secrets-ui ALL=(root) NOPASSWD: /usr/local/bin/app-secret" > /etc/sudoers.
 chmod 440 /etc/sudoers.d/secrets-ui
 visudo -cf /etc/sudoers.d/secrets-ui >/dev/null
 
-if [ "$BACKEND" = kratos ]; then SIGNOUT_URL=/.auth/logout; else SIGNOUT_URL='/login/?logout'; fi
+if [ "$BACKEND" = kratos ]; then SIGNOUT_URL=/.auth/logout; ACCOUNT_URL=https://auth.$DOMAIN/login/?view=account; else SIGNOUT_URL='/login/?logout'; ACCOUNT_URL=; fi
 cat > /etc/systemd/system/secrets-ui.service <<EOF
 # Managed by deploy/setup-secrets.sh
 [Unit]
@@ -198,7 +198,7 @@ After=network.target
 [Service]
 User=secrets-ui
 Group=secrets-ui
-Environment=OWNER=$OWNER HOST=$HOST SIGNOUT_URL=$SIGNOUT_URL
+Environment=OWNER=$OWNER HOST=$HOST SIGNOUT_URL=$SIGNOUT_URL "ACCOUNT_URL=$ACCOUNT_URL"
 ExecStart=$(command -v node) /opt/secrets-ui/server.js
 # The socket lives here; Caddy reaches it through the secrets-ui group.
 RuntimeDirectory=secrets-ui

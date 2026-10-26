@@ -10,7 +10,7 @@ const { execFile } = require('node:child_process');
 
 const SOCK = '/run/secrets-ui/http.sock';
 const HELPER = '/usr/local/bin/app-secret';
-const { OWNER, HOST, SIGNOUT_URL = '/login/?logout' } = process.env;
+const { OWNER, HOST, SIGNOUT_URL = '/login/?logout', ACCOUNT_URL = '' } = process.env;
 if (!OWNER || !HOST) throw new Error('OWNER and HOST must be set');
 const ORIGIN = `https://${HOST}`;
 const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
@@ -62,6 +62,7 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
   <span class="crumb">${esc(DOMAIN)}</span>
   <span class="spacer"></span>
   <span class="user"><span class="avatar" aria-hidden="true">${esc(OWNER.slice(0, 1))}</span><span class="user-name">${esc(OWNER)}</span></span>
+  ${ACCOUNT_URL ? `<a class="btn btn-header" href="${esc(ACCOUNT_URL)}">Account</a>` : ''}
   <a class="btn btn-header" href="${esc(SIGNOUT_URL)}">Sign out</a>
 </div></header>
 <main class="wrap">
