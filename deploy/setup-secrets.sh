@@ -39,6 +39,9 @@ case ${1:-} in
   lock)
     user=$(sed -nE 's/^  ([a-z0-9_-]+):$/\1/p' "$CONF/users.yml" | head -1)
     set_password "$user" >/dev/null
+    # Setup phase over: a passkey alone (one factor) is enough from now on. Re-runs of this script keep it so.
+    touch "$CONF/.locked"
+    sed -i 's/policy: two_factor/policy: one_factor/' "$CONF/configuration.yml"
     systemctl restart authelia
     echo "Password login for '$user' now uses a random password nobody knows. Sign in with your passkey."; exit ;;
 esac
@@ -71,6 +74,9 @@ done
 FIRST_PW=""
 [ -f "$CONF/users.yml" ] && grep -q "^  $OWNER:$" "$CONF/users.yml" || FIRST_PW=$(set_password "$OWNER")
 
+POLICY=two_factor
+[ ! -e "$CONF/.locked" ] || POLICY=one_factor
+
 cat > "$CONF/configuration.yml" <<EOF
 # Managed by deploy/setup-secrets.sh. Login portal for https://$HOST, served at /auth. Secret keys are in ./secrets/.
 theme: auto
@@ -86,10 +92,11 @@ authentication_backend:
 access_control:
   default_policy: deny
   rules:
-    # A passkey with Touch ID / Face ID counts as one factor in Authelia. The password is random and unknown after
-    # "setup-secrets.sh lock", so in practice only the passkey gets in.
+    # Until "setup-secrets.sh lock" this is two_factor, because Authelia only offers passkey registration when some
+    # rule needs a second factor. Afterwards a passkey login (one factor, user-verified) is enough, and the password
+    # is random and unknown, so only the passkey gets in.
     - domain: '$HOST'
-      policy: one_factor
+      policy: $POLICY
       subject: 'user:$OWNER'
 session:
   cookies:
@@ -244,7 +251,7 @@ if [ -n "$FIRST_PW" ]; then
 
 First sign-in (once):
   1. Open https://$HOST and sign in as '$OWNER' with this one-time password:  $FIRST_PW
-  2. Open https://$HOST/auth/settings -> Two-Factor Authentication / Passkeys -> add a passkey (Touch ID / Face ID).
+  2. Open https://$HOST/auth/settings -> Two-Factor Authentication -> add a security key / passkey (Touch ID / Face ID).
      When it asks for a one-time code:  sudo bash $0 code
      Add a second passkey too (another device or a security key) so you can't lock yourself out.
   3. Sign out, check that the passkey alone gets you in, then:  sudo bash $0 lock
