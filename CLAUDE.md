@@ -32,6 +32,13 @@ Deploys come from GitHub Actions over Tailscale SSH as user `deploy`; the reusab
 - **Roll back a bad release:** point `current` back (needs `deploy` rights, so tell the owner to re-run an older commit's
   Deploy workflow from GitHub instead), or just restart the service: `sudo systemctl restart app@<name>`.
 
+## Occasional tools
+- **Create a new GitHub repository** (when the owner says "create a new github repository" or similar): run
+  `~/work/githubcli/create_private_repo.sh <repo-name> ["description"]`. It makes a **private** repo under the owner's
+  account via `gh repo create`. Ask for the name if not given; never guess it. Run `git -C ~/work/githubcli pull` first
+  so the script is current. Needs `gh` installed and authenticated (`gh auth status`); if not, say so and ask the
+  owner (don't hunt for tokens). Clone is `cchesk/githubcli`, read-only via deploy key `~/.ssh/githubcli_deploy`.
+
 ## How permissions work here
 The session runs in `auto` permission mode (flag in `ops/setup-ops.sh`). `.claude/settings.json` adds: read-only commands pre-approved
 (`allow`); commands that change the system always prompt the owner, even in auto mode (`ask`: reboot, restarts, upgrades/installs,

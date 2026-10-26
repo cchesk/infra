@@ -10,7 +10,7 @@ set -euo pipefail
 
 echo "== packages"
 apt-get update -qq
-apt-get install -y -qq tmux git curl needrestart >/dev/null
+apt-get install -y -qq tmux git curl gh needrestart >/dev/null
 
 # Never let package upgrades restart the tmux session Claude runs in (needrestart would otherwise restart it
 # mid-upgrade after glibc/openssl/systemd updates). Other services are still restarted automatically.
