@@ -64,6 +64,8 @@ Unattended-Upgrade::Origins-Pattern:: "site=apt.authelia.com";
 EOF
 id authelia >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin authelia
 
+install -d -m 750 -o root -g authelia "$CONF/assets"
+install -m 640 -o root -g authelia "$HERE"/secrets-ui/assets/{logo.png,favicon.ico} "$CONF/assets/"
 mkdir -p "$CONF/secrets"
 chown root:authelia "$CONF" "$CONF/secrets"; chmod 750 "$CONF" "$CONF/secrets"
 for s in jwt session storage; do
@@ -83,6 +85,8 @@ cat > "$CONF/configuration.yml" <<EOF
 theme: auto
 server:
   address: 'tcp://127.0.0.1:9091/auth'
+  # Same logo and favicon as the secrets page (deploy/secrets-ui/assets).
+  asset_path: $CONF/assets/
 log:
   level: info
 authentication_backend:
@@ -164,8 +168,9 @@ EOF
 echo "== secrets UI and its root helper"
 id secrets-ui >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin secrets-ui
 install -m 755 "$HERE/app-secret" /usr/local/bin/app-secret
-install -d -m 755 /opt/secrets-ui
-install -m 644 "$HERE/secrets-ui/server.js" "$HERE/secrets-ui/app.js" /opt/secrets-ui/
+install -d -m 755 /opt/secrets-ui /opt/secrets-ui/assets
+install -m 644 "$HERE"/secrets-ui/{server.js,app.js,app.css} /opt/secrets-ui/
+install -m 644 "$HERE"/secrets-ui/assets/{logo.svg,favicon.ico,apple-touch-icon.png,mask.woff2} /opt/secrets-ui/assets/
 install -d -m 700 /etc/apps/secrets
 echo "secrets-ui ALL=(root) NOPASSWD: /usr/local/bin/app-secret" > /etc/sudoers.d/secrets-ui
 chmod 440 /etc/sudoers.d/secrets-ui

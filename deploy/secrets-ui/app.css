@@ -1,0 +1,117 @@
+/* Secrets page. GitHub-like neutrals; the accent matches Authelia's default theme so login and page feel like one. */
+@font-face { font-family: "mask"; src: url(/assets/mask.woff2) format("woff2"); font-display: block; }
+
+:root {
+  color-scheme: light;
+  --bg: #f6f8fa; --surface: #ffffff; --subtle: #f6f8fa; --border: #d1d9e0; --border-muted: #d1d9e0b3;
+  --fg: #1f2328; --muted: #59636e;
+  --accent: #1976d2; --accent-hover: #1565c0; --accent-fg: #ffffff; --focus: #1976d240;
+  --btn: #f6f8fa; --btn-hover: #eef1f4;
+  --danger: #d1242f; --danger-bg: #ffebe9; --danger-border: #ff818266;
+  --success: #1a7f37; --success-bg: #dafbe1; --success-border: #4ac26b66;
+  --topbar: #0d1117; --topbar-fg: #f0f6fc; --topbar-muted: #9198a1; --topbar-border: #3d444d;
+  --shadow: 0 1px 0 #1f23280a, 0 1px 3px #1f23280f;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0d1117; --surface: #151b23; --subtle: #10151c; --border: #3d444d; --border-muted: #3d444db3;
+    --fg: #f0f6fc; --muted: #9198a1;
+    --accent: #90caf9; --accent-hover: #a6d4fa; --accent-fg: #0d1117; --focus: #90caf966;
+    --btn: #212830; --btn-hover: #2a313c;
+    --danger: #f85149; --danger-bg: #25171c; --danger-border: #f8514966;
+    --success: #3fb950; --success-bg: #15241c; --success-border: #2ea04366;
+    --topbar: #010409;
+    --shadow: none;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 var(--sans); -webkit-font-smoothing: antialiased; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.wrap { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+
+/* Top bar */
+.topbar { background: var(--topbar); color: var(--topbar-fg); border-bottom: 1px solid var(--topbar-border); }
+.topbar-inner { display: flex; align-items: center; gap: 12px; height: 56px; }
+.brand { display: flex; align-items: center; gap: 10px; color: var(--topbar-fg); font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.brand:hover { text-decoration: none; }
+.crumb { color: var(--topbar-muted); padding-left: 12px; border-left: 1px solid var(--topbar-border); }
+.spacer { flex: 1; }
+.user { display: flex; align-items: center; gap: 8px; color: var(--topbar-muted); }
+.avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: #fff;
+  background: linear-gradient(135deg, #3b82f6, #7c3aed); font-size: 12px; font-weight: 600; text-transform: uppercase; }
+@media (max-width: 600px) { .crumb, .user-name { display: none; } }
+
+/* Page */
+.page-head { padding: 32px 0 8px; }
+h1 { margin: 0 0 4px; font-size: 24px; font-weight: 600; letter-spacing: -0.01em; }
+.lead { margin: 0; max-width: 640px; color: var(--muted); }
+.foot { padding: 24px 16px 40px; color: var(--muted); font-size: 12px; text-align: center; }
+
+/* App boxes */
+.box { margin: 16px 0; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: var(--shadow); }
+.box-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; background: var(--subtle); border-bottom: 1px solid var(--border); }
+.box-head .btn { margin-left: auto; }
+.app-icon { width: 28px; height: 28px; flex: none; display: grid; place-items: center; color: var(--muted);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+.app-icon svg { width: 16px; height: 16px; }
+.app-name { margin: 0; font-size: 15px; font-weight: 600; overflow-wrap: anywhere; }
+.counter { flex: none; padding: 0 7px; color: var(--muted); font-size: 12px; font-weight: 500; line-height: 18px;
+  background: var(--btn); border: 1px solid var(--border); border-radius: 2em; }
+.rows { margin: 0; padding: 0; list-style: none; }
+.row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 10px 16px; border-top: 1px solid var(--border-muted); }
+.row:first-child { border-top: 0; }
+.key { flex: 0 1 40%; min-width: 0; font: 600 13px var(--mono); overflow-wrap: anywhere; }
+.value { flex: 1 1 auto; min-width: 0; color: var(--muted); font: 13px var(--mono); overflow-wrap: anywhere; }
+.value.shown { color: var(--fg); }
+.actions { display: flex; flex: none; gap: 4px; margin-left: auto; }
+@media (max-width: 600px) { .row { flex-wrap: wrap; row-gap: 4px; } .key { flex-basis: 100%; } }
+.empty { padding: 32px 16px; color: var(--muted); text-align: center; }
+.empty svg { display: block; width: 24px; height: 24px; margin: 0 auto 8px; }
+.empty strong { display: block; color: var(--fg); font-size: 15px; }
+
+/* Editing */
+.row.edit-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto auto; gap: 8px; }
+@media (max-width: 600px) { .row.edit-row { grid-template-columns: minmax(0, 1fr) auto auto; } .edit-row .key-input { grid-column: 1 / -1; } }
+.add-row { padding: 8px 12px; border-top: 1px solid var(--border-muted); }
+.box-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; background: var(--subtle); border-top: 1px solid var(--border); }
+.box-foot .buttons { display: flex; gap: 8px; margin-left: auto; }
+.input { width: 100%; height: 32px; padding: 5px 12px; color: var(--fg); font: 14px var(--mono); background: var(--bg);
+  border: 1px solid var(--border); border-radius: 6px; outline: none; }
+.input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus); }
+.input::placeholder { color: var(--muted); font-family: var(--sans); letter-spacing: normal; }
+/* Masking by font instead of -webkit-text-security: Safari treats text-security fields as passwords and offers to save them. */
+.masked { font-family: "mask"; letter-spacing: 0.1em; }
+@media (max-width: 600px) { .input { height: 38px; font-size: 16px; } } /* 16px keeps iOS from zooming in */
+.check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.check input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+
+/* Buttons */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding: 0 12px;
+  color: var(--fg); font: 500 14px var(--sans); white-space: nowrap; text-decoration: none; cursor: pointer;
+  background: var(--btn); border: 1px solid var(--border); border-radius: 6px; }
+.btn:hover { background: var(--btn-hover); text-decoration: none; }
+.btn:disabled { opacity: 0.6; cursor: default; }
+.btn-primary { color: var(--accent-fg); background: var(--accent); border-color: transparent; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-invisible { color: var(--accent); background: transparent; border-color: transparent; }
+.btn-invisible:hover { background: var(--btn-hover); }
+.btn-header { color: var(--topbar-fg); background: transparent; border-color: var(--topbar-border); }
+.btn-header:hover { background: #ffffff14; }
+.btn-icon { width: 32px; height: 32px; display: inline-grid; place-items: center; padding: 0; color: var(--muted); cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: 6px; }
+.btn-icon:hover { color: var(--fg); background: var(--btn-hover); }
+.btn-icon.danger:hover { color: var(--danger); }
+.btn-icon.done { color: var(--success); }
+.btn:focus-visible, .btn-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* Messages */
+.flash { margin: 0; padding: 10px 16px; font-size: 14px; border-bottom: 1px solid; }
+.flash.ok { color: var(--success); background: var(--success-bg); border-color: var(--success-border); }
+.flash.err { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-border); }
+.offscreen { position: fixed; top: 0; left: -9999px; opacity: 0; }

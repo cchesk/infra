@@ -149,6 +149,10 @@ sudo bash ~ops/infra/deploy/setup-secrets.sh            # prints a one-time pass
 sudo bash ~ops/infra/deploy/setup-secrets.sh code       # one-time code while you add a passkey
 sudo bash ~ops/infra/deploy/setup-secrets.sh lock       # afterwards: passkey only
 ```
+Logo, favicons and the dots-only mask font live in `deploy/secrets-ui/assets/`; `node build.js` there regenerates
+the images from one geometry. Authelia gets the same logo and favicon through `server.asset_path` (it allows no other
+styling). Value fields are masked by that font rather than as password fields, so password managers stay out.
+
 Adding another passkey later needs `code` again (as root over SSH). Re-running the script keeps users, passkeys and
 keys; `deploy/app-secret` and `deploy/secrets-ui/` are re-installed from this checkout.
 

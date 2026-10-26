@@ -14,7 +14,6 @@ const { OWNER, HOST } = process.env;
 if (!OWNER || !HOST) throw new Error('OWNER and HOST must be set');
 const ORIGIN = `https://${HOST}`;
 const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
-const APP_JS = fs.readFileSync(path.join(__dirname, 'app.js'));
 
 function helper(args, input = '') {
   return new Promise((resolve, reject) => {
@@ -36,45 +35,48 @@ async function loadApp(name) {
 
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
+// Static files, read once at startup. Everything here is behind the passkey login like the rest of the page.
+const STATIC = Object.fromEntries([
+  ['/app.js', 'app.js', 'text/javascript; charset=utf-8'],
+  ['/app.css', 'app.css', 'text/css; charset=utf-8'],
+  ['/favicon.ico', 'assets/favicon.ico', 'image/x-icon'],
+  ['/apple-touch-icon.png', 'assets/apple-touch-icon.png', 'image/png'],
+  ['/assets/logo.svg', 'assets/logo.svg', 'image/svg+xml'],
+  ['/assets/mask.woff2', 'assets/mask.woff2', 'font/woff2'],
+].map(([url, file, type]) => [url, { body: fs.readFileSync(path.join(__dirname, file)), type }]));
+
+const DOMAIN = HOST.replace(/^secrets\./, '');
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>App secrets</title>
-<style>
-:root{color-scheme:light dark;--bg:#fafafa;--fg:#1a1a1a;--card:#fff;--line:#ddd;--muted:#777;--accent:#2457d6;--bad:#b3261e;--good:#1e7a3c}
-@media (prefers-color-scheme:dark){:root{--bg:#141414;--fg:#eee;--card:#1e1e1e;--line:#333;--muted:#999;--accent:#7aa2ff;--bad:#ff8a80;--good:#7bd88f}}
-body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
-main{max-width:720px;margin:0 auto;padding:16px}
-h1{font-size:1.4rem;margin:.2rem 0}h2{font-size:1.1rem;margin:0}a{color:var(--accent)}
-section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin:16px 0}
-.head{display:flex;justify-content:space-between;align-items:center;gap:8px}
-.rows{list-style:none;padding:0;margin:8px 0}
-.rows li{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:8px 0;border-top:1px solid var(--line)}
-.rows li:first-child{border-top:0}
-.key{font-weight:600;overflow-wrap:anywhere}
-.value{flex:1 1 140px;min-width:0;font-family:ui-monospace,Menlo,monospace;overflow-wrap:anywhere;color:var(--muted)}
-.value.shown{color:var(--fg)}
-.actions{display:flex;gap:6px;margin-left:auto}
-.edit li{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px}
-.edit .key-input{grid-column:1/-1}
-@media (min-width:560px){.edit li{grid-template-columns:minmax(0,2fr) minmax(0,3fr) auto auto}.edit .key-input{grid-column:auto}}
-input:not([type=checkbox]){width:100%;box-sizing:border-box;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:16px ui-monospace,Menlo,monospace}
-.masked{-webkit-text-security:disc;text-security:disc}
-button{padding:8px 14px;border:0;border-radius:6px;background:var(--accent);color:#fff;font:inherit;cursor:pointer}
-button:disabled{opacity:.6}
-button.secondary{background:transparent;color:var(--accent);border:1px solid var(--line)}
-button.icon{background:transparent;color:var(--fg);border:1px solid var(--line);width:38px;height:38px;padding:0;display:inline-grid;place-items:center}
-button.icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
-.footer{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;margin-top:12px}
-.footer .buttons{display:flex;gap:8px;margin-left:auto}
-.muted{color:var(--muted)}.msg{margin:8px 0 0}.ok{color:var(--good)}.err{color:var(--bad)}
-</style></head><body><main>
-<h1>App secrets</h1>
-<p class="muted">Signed in as ${esc(OWNER)} · <a href="/auth/logout">Sign out</a></p>
-<div id="apps"><p class="muted">Loading…</p></div>
-</main><script src="/app.js"></script></body></html>`;
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0d1117">
+<title>Secrets · ${esc(DOMAIN)}</title>
+<link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+<link rel="alternate icon" href="/favicon.ico">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/assets/mask.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/app.css">
+</head><body>
+<header class="topbar"><div class="wrap topbar-inner">
+  <a class="brand" href="/"><img src="/assets/logo.svg" alt="" width="28" height="28">Secrets</a>
+  <span class="crumb">${esc(DOMAIN)}</span>
+  <span class="spacer"></span>
+  <span class="user"><span class="avatar" aria-hidden="true">${esc(OWNER.slice(0, 1))}</span><span class="user-name">${esc(OWNER)}</span></span>
+  <a class="btn btn-header" href="/auth/logout">Sign out</a>
+</div></header>
+<main class="wrap">
+  <div class="page-head">
+    <h1>Applications</h1>
+    <p class="lead">Environment secrets for the node apps on this server. An app reads them when it starts, so save with a restart for a change to take effect.</p>
+  </div>
+  <div id="apps" aria-live="polite"><div class="box empty">Loading…</div></div>
+</main>
+<footer class="foot">Stored root-only on this server. Never committed, never sent to GitHub.</footer>
+<script src="/app.js"></script>
+</body></html>`;
 
 const SECURITY_HEADERS = {
   'Cache-Control': 'no-store',
-  'Content-Security-Policy': "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
+  'Content-Security-Policy': "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'",
 };
 
 function send(res, status, body, type = 'text/html; charset=utf-8') {
@@ -120,7 +122,7 @@ const server = http.createServer(async (req, res) => {
     if (req.headers['remote-user'] !== OWNER) return send(res, 403, 'Forbidden', 'text/plain');
     const { pathname } = new URL(req.url, ORIGIN);
     if (req.method === 'GET' && pathname === '/') return send(res, 200, PAGE);
-    if (req.method === 'GET' && pathname === '/app.js') return send(res, 200, APP_JS, 'text/javascript; charset=utf-8');
+    if (req.method === 'GET' && STATIC[pathname]) return send(res, 200, STATIC[pathname].body, STATIC[pathname].type);
     if (req.method === 'GET' && pathname === '/api/apps') {
       const names = (await helper(['apps'])).split('\n').filter(Boolean);
       return json(res, 200, { apps: await Promise.all(names.map(loadApp)) });
