@@ -26,7 +26,7 @@ command -v tailscale >/dev/null || curl -fsSL https://tailscale.com/install.sh |
 
 echo "== deploy user, app registry, deploy helper"
 id deploy >/dev/null 2>&1 || useradd --create-home --shell /bin/bash deploy
-mkdir -p /srv/apps /etc/apps /etc/caddy/apps
+mkdir -p /srv/apps /etc/apps /etc/caddy/apps /etc/caddy/sites
 chown deploy:deploy /srv/apps
 echo "$DOMAIN" > /etc/apps/domain
 curl -fsSL "$SRC/app-deploy" -o /usr/local/bin/app-deploy
@@ -61,6 +61,8 @@ echo "== caddy"
 cat > /etc/caddy/Caddyfile <<'EOF'
 # Managed by deploy/setup-server.sh. One file per app in /etc/caddy/apps/, written by app-deploy.
 import /etc/caddy/apps/*.caddy
+# Server tools (e.g. setup-secrets.sh), kept apart so app-deploy never overwrites them.
+import /etc/caddy/sites/*.caddy
 EOF
 systemctl enable --now caddy >/dev/null
 systemctl reload caddy

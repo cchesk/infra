@@ -128,4 +128,27 @@ socat TCP-LISTEN:8888,bind=127.0.0.1,fork,reuseaddr PROXY:127.0.0.1:100.104.209.
 export HTTPS_PROXY=http://127.0.0.1:8888 HTTP_PROXY=http://127.0.0.1:8888
 ```
 
+## Optional: secrets page with passkey login
+
+`deploy/setup-secrets.sh` publishes `https://secrets.<domain>`, a write-only page where you set, replace or remove
+the secrets of each node app and restart it. Values are never shown again.
+
+- **Login:** Authelia (from `apt.authelia.com`, auto-updated by unattended-upgrades) at `/auth`. You sign in with a
+  passkey (Touch ID / Face ID or a security key). The bootstrap password is replaced by an unknown random one.
+  Failed logins get you banned for an hour after 3 tries. The session cookie belongs to `secrets.<domain>` only, so
+  the other apps never see it.
+- **Isolation:** the page (`deploy/secrets-ui/server.js`, Node, no dependencies) listens on a unix socket that only
+  Caddy can open, and trusts Caddy's `Remote-User` header only. It writes through the root helper
+  `/usr/local/bin/app-secret`, its only sudo right, which accepts an existing node app and a key name and writes
+  just `/etc/apps/secrets/<app>.env` (root-only, `PORT` refused). `app@<app>` loads that file after `env.local`,
+  so a key set on the page wins.
+
+```bash
+sudo bash ~ops/infra/deploy/setup-secrets.sh            # prints a one-time password and the first-login steps
+sudo bash ~ops/infra/deploy/setup-secrets.sh code       # one-time code while you add a passkey
+sudo bash ~ops/infra/deploy/setup-secrets.sh lock       # afterwards: passkey only
+```
+Adding another passkey later needs `code` again (as root over SSH). Re-running the script keeps users, passkeys and
+keys; `deploy/app-secret` and `server.js` are re-installed from this checkout.
+
 Note: other repos run this workflow straight from `cchesk/infra@main`, so changes here affect every app.
