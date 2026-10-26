@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Optional: a web page for app secrets at https://secrets.<domain>, behind a passkey-only login: our own login page
-# (github.com/cchesk/loginpage, at /login/) in front of Authelia (its API and portal at /authelia/).
+# Optional: a web page for app secrets at https://secrets.<domain>, behind a passkey login. Two login backends:
+#   authelia  (default) our own login page (github.com/cchesk/loginpage, at /login/) in front of Authelia (/authelia/)
+#   kratos    sign-in at https://auth.<domain> (Ory Kratos + the auth gateway; deploy/setup-kratos.sh, then "cutover")
+# The choice is kept in /etc/apps/auth-backend.
 #   sudo bash ~ops/infra/deploy/setup-secrets.sh [USER]   install or update (USER: login name, default "owner")
 #   sudo bash ~ops/infra/deploy/setup-secrets.sh code     show the one-time code Authelia "emailed" (passkey setup)
 #   sudo bash ~ops/infra/deploy/setup-secrets.sh lock     replace the bootstrap password with an unknown random one
@@ -14,6 +16,8 @@ DOMAIN=$(cat /etc/apps/domain)
 HOST=secrets.$DOMAIN
 CONF=/etc/authelia
 LOGINPAGE=${LOGINPAGE:-/home/ops/loginpage}
+BACKEND=$(cat /etc/apps/auth-backend 2>/dev/null || echo authelia)
+[[ $BACKEND == authelia || $BACKEND == kratos ]] || { echo "bad /etc/apps/auth-backend: '$BACKEND'"; exit 1; }
 
 # New random password for USER in users.yml; prints it.
 set_password() {
@@ -53,6 +57,9 @@ OWNER=${1:-}
 [ -n "$OWNER" ] || OWNER=$(sed -nE 's/^  ([a-z0-9_-]+):$/\1/p' "$CONF/users.yml" 2>/dev/null | head -1 || true)
 OWNER=${OWNER:-owner}
 [[ $OWNER =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || { echo "bad user name '$OWNER'"; exit 1; }
+FIRST_PW=""
+
+if [ "$BACKEND" = authelia ]; then
 [ -f "$LOGINPAGE/install.sh" ] || { echo "login page not found in $LOGINPAGE; first run:  sudo -iu ops gh repo clone cchesk/loginpage ~/loginpage"; exit 1; }
 
 echo "== authelia (apt.authelia.com, kept current by unattended-upgrades)"
@@ -77,7 +84,6 @@ for s in jwt session storage; do
   [ -s "$CONF/secrets/$s" ] || { openssl rand -hex 48 > "$CONF/secrets/$s"; }
   chown root:authelia "$CONF/secrets/$s"; chmod 640 "$CONF/secrets/$s"
 done
-FIRST_PW=""
 [ -f "$CONF/users.yml" ] && grep -q "^  $OWNER:$" "$CONF/users.yml" || FIRST_PW=$(set_password "$OWNER")
 
 POLICY=two_factor
@@ -169,6 +175,7 @@ PrivateTmp=yes
 [Install]
 WantedBy=multi-user.target
 EOF
+fi # authelia
 
 echo "== secrets UI and its root helper"
 id secrets-ui >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin secrets-ui
@@ -181,6 +188,7 @@ echo "secrets-ui ALL=(root) NOPASSWD: /usr/local/bin/app-secret" > /etc/sudoers.
 chmod 440 /etc/sudoers.d/secrets-ui
 visudo -cf /etc/sudoers.d/secrets-ui >/dev/null
 
+if [ "$BACKEND" = kratos ]; then SIGNOUT_URL=/.auth/logout; else SIGNOUT_URL='/login/?logout'; fi
 cat > /etc/systemd/system/secrets-ui.service <<EOF
 # Managed by deploy/setup-secrets.sh
 [Unit]
@@ -190,7 +198,7 @@ After=network.target
 [Service]
 User=secrets-ui
 Group=secrets-ui
-Environment=OWNER=$OWNER HOST=$HOST
+Environment=OWNER=$OWNER HOST=$HOST SIGNOUT_URL=$SIGNOUT_URL
 ExecStart=$(command -v node) /opt/secrets-ui/server.js
 # The socket lives here; Caddy reaches it through the secrets-ui group.
 RuntimeDirectory=secrets-ui
@@ -213,6 +221,7 @@ cat > /etc/systemd/system/app@.service.d/secrets.conf <<'EOF'
 EnvironmentFile=-/etc/apps/secrets/%i.env
 EOF
 
+if [ "$BACKEND" = authelia ]; then
 echo "== login page (from $LOGINPAGE)"
 bash "$LOGINPAGE/install.sh" /opt/loginpage >/dev/null
 cat > /opt/loginpage/config.json <<EOF
@@ -227,27 +236,34 @@ cat > /opt/loginpage/config.json <<EOF
   "signup": true
 }
 EOF
+fi
 
-echo "== caddy site"
+echo "== caddy site ($BACKEND)"
 mkdir -p /etc/caddy/sites
 grep -q '^import /etc/caddy/sites/' /etc/caddy/Caddyfile || echo 'import /etc/caddy/sites/*.caddy' >> /etc/caddy/Caddyfile
-cat > /etc/caddy/sites/secrets.caddy <<EOF
-# Managed by deploy/setup-secrets.sh (not in apps/, so app-deploy can never overwrite it)
-$HOST {
-	# Identity headers come only from Authelia, never from the client.
-	request_header -Remote-User
-	request_header -Remote-Groups
-	request_header -Remote-Email
-	request_header -Remote-Name
-	# Our login page: static files, loads without a session.
+if [ "$BACKEND" = kratos ]; then
+  ROUTES="	# The auth gateway (deploy/auth-gateway): sign-in callback and sign-out for this app.
+	handle /.auth/* {
+		reverse_proxy unix//run/auth-gateway/http.sock
+	}
+	# Everything else needs a Kratos session with the secrets-admins group; without one, the gateway sends the
+	# visitor to https://auth.$DOMAIN.
+	handle {
+		forward_auth unix//run/auth-gateway/http.sock {
+			uri /verify
+			copy_headers Remote-User Remote-Groups Remote-Email
+		}
+"
+else
+  ROUTES="	# Our login page: static files, loads without a session.
 	redir /login /login/
 	@login path /login/*
 	handle @login {
 		uri strip_prefix /login
 		root * /opt/loginpage
 		file_server
-		header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
-		header Cache-Control "no-cache"
+		header Content-Security-Policy \"default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'\"
+		header Cache-Control \"no-cache\"
 	}
 	# Authelia: the API the login page calls, and its own portal (passkey settings at /authelia/settings).
 	@authelia path /authelia /authelia/*
@@ -260,7 +276,17 @@ $HOST {
 			uri /authelia/api/authz/forward-auth?authelia_url=https://$HOST/login/
 			copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
 		}
-		reverse_proxy unix//run/secrets-ui/http.sock {
+"
+fi
+cat > /etc/caddy/sites/secrets.caddy <<EOF
+# Managed by deploy/setup-secrets.sh (not in apps/, so app-deploy can never overwrite it)
+$HOST {
+	# Identity headers come only from the login backend, never from the client.
+	request_header -Remote-User
+	request_header -Remote-Groups
+	request_header -Remote-Email
+	request_header -Remote-Name
+$ROUTES		reverse_proxy unix//run/secrets-ui/http.sock {
 			header_up -Cookie
 		}
 	}
@@ -278,12 +304,19 @@ NEED_CADDY_RESTART=""
 id -nG caddy | grep -qw secrets-ui || { usermod -aG secrets-ui caddy; NEED_CADDY_RESTART=1; }
 
 systemctl daemon-reload
-systemctl enable authelia secrets-ui >/dev/null 2>&1
-systemctl restart authelia secrets-ui
+systemctl enable secrets-ui >/dev/null 2>&1
+systemctl restart secrets-ui
+if [ "$BACKEND" = authelia ]; then
+  systemctl enable authelia >/dev/null 2>&1
+  systemctl restart authelia
+else
+  # Kept installed and configured, so "setup-kratos.sh rollback" can bring it back.
+  systemctl disable --now authelia >/dev/null 2>&1 || true
+fi
 # Caddy must restart (not reload) once to pick up its new group; every site blips for about a second.
 if [ -n "$NEED_CADDY_RESTART" ]; then systemctl restart caddy; else systemctl reload caddy; fi
 sleep 2
-for s in authelia secrets-ui caddy; do
+for s in secrets-ui caddy $([ "$BACKEND" = authelia ] && echo authelia); do
   systemctl is-active --quiet "$s" || { journalctl -u "$s" -n 30 --no-pager; exit 1; }
 done
 

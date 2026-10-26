@@ -161,4 +161,47 @@ password fields, so password managers stay out.
 Adding another passkey later needs `code` again (as root over SSH). Re-running the script keeps users, passkeys and
 keys; `deploy/app-secret`, `deploy/secrets-ui/` and the login page (from `~ops/loginpage`) are re-installed.
 
+## Optional: Ory Kratos sign-in (replaces Authelia; Google and GitHub)
+
+`deploy/setup-kratos.sh` sets up sign-in at `https://auth.<domain>` without Docker, next to Authelia until you switch
+over. About 150 MB of RAM in total.
+
+```
+browser ─► Caddy ─┬─ auth.<domain>/login/*    our login page (/opt/loginpage-kratos)
+                  ├─ auth.<domain>/kratos/*   Kratos public API (127.0.0.1:4433)
+                  ├─ auth.<domain>/gateway/*  auth gateway: hands a signed-in person over to an app
+                  └─ <app>.<domain>           forward_auth ─► auth gateway /verify ─► the app (Remote-User etc.)
+```
+
+- **Kratos** (`kratos.service`, one checksum-pinned binary with SQLite in `/var/lib/kratos`): passkeys, passwords,
+  Google and GitHub. No self sign-up: people are created by the script, and a Google or GitHub account only signs
+  in after it's connected to an existing person (account page). Its admin API is a unix socket that only Kratos and
+  the gateway can open (group `kratos-admin`), never TCP: it has no authentication of its own.
+- **Auth gateway** (`auth-gateway.service`, `deploy/auth-gateway/server.js`, Node, no dependencies): Caddy asks it
+  before serving an app. Each app gets its own signed, host-only cookie (via a one-time code from the auth host), so
+  apps never see the Kratos session or each other's. It re-checks the Kratos session (30 s cache) and the person's
+  groups (`metadata_public.groups`) against `/etc/auth-gateway/apps.json`. Sign-out per app: `/.auth/logout`.
+- **Login page** with an account page (`/login/?view=account`): add and remove passkeys, connect Google/GitHub.
+
+```bash
+sudo bash ~ops/infra/deploy/setup-kratos.sh you@example.com   # install; prints the owner's one-time password
+sudo bash ~ops/infra/deploy/setup-kratos.sh cutover           # secrets.<domain> -> Kratos (Authelia stops)
+sudo bash ~ops/infra/deploy/setup-kratos.sh rollback          # back to Authelia
+sudo bash ~ops/infra/deploy/setup-kratos.sh lock              # remove the owner's password (passkey only)
+sudo bash ~ops/infra/deploy/setup-kratos.sh google            # Google client ID and secret (prompts)
+sudo bash ~ops/infra/deploy/setup-kratos.sh github            # GitHub client ID and secret (prompts)
+```
+
+**Google:** Google Cloud console -> APIs & Services -> OAuth consent screen (External; app name, your email; scopes
+`openid`, `email`, `profile`) -> Clients / Credentials -> Create OAuth client ID -> Web application, authorized
+redirect URI `https://auth.<domain>/kratos/self-service/methods/oidc/callback/google`.
+**GitHub:** Settings -> Developer settings -> OAuth Apps -> New OAuth App, homepage `https://auth.<domain>`,
+authorization callback URL `https://auth.<domain>/kratos/self-service/methods/oidc/callback/github`, then generate a
+client secret. After either, connect the account once at `https://auth.<domain>/login/?view=account`.
+
+More apps: add `"<app>.<domain>": { "groups": ["<group>"] }` to `/etc/auth-gateway/apps.json` (`systemctl reload
+auth-gateway`), add the group to the people who should get in, and give the app's Caddy site the same `/.auth/*` and
+`forward_auth` block as `secrets.<domain>`. Upgrades: bump `KRATOS_VERSION` and `KRATOS_SHA256` (from the release's
+`checksums.txt`) in the script and re-run it; migrations run on start.
+
 Note: other repos run this workflow straight from `cchesk/infra@main`, so changes here affect every app.

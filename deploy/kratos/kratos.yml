@@ -1,0 +1,95 @@
+# Ory Kratos for https://${AUTH_HOST}. Rendered to /etc/kratos/kratos.yml by deploy/setup-kratos.sh (envsubst); the
+# rendered file holds secrets, so it's root:kratos 640.
+#   public API  https://${AUTH_HOST}/kratos/ (Caddy strips the prefix) -> 127.0.0.1:4433
+#   admin API   unix socket /run/kratos/admin.sock, only for root and the auth gateway: it has no authentication of
+#               its own, so it must never be reachable by the apps on this server
+version: v26.2.0
+
+dsn: sqlite:///var/lib/kratos/kratos.sqlite?_fk=true&mode=rwc
+
+serve:
+  public:
+    base_url: https://${AUTH_HOST}/kratos/
+    host: 127.0.0.1
+    port: 4433
+  admin:
+    base_url: http://localhost/
+    host: unix:/run/kratos/admin.sock
+    socket:
+      group: kratos-admin
+      mode: 432 # 0660
+
+selfservice:
+  default_browser_return_url: https://${DEFAULT_APP_HOST}/
+  allowed_return_urls:
+    - https://${AUTH_HOST}/
+
+  methods:
+    password:
+      enabled: true
+      config:
+        haveibeenpwned_enabled: false
+    passkey:
+      enabled: true
+      config:
+        rp:
+          display_name: ${AUTH_HOST}
+          id: ${AUTH_HOST}
+          origins: [https://${AUTH_HOST}]
+    oidc:
+      enabled: true
+      config:
+        # Filled in by setup-kratos.sh from /etc/kratos/oidc.env (only providers with a client ID and secret).
+        providers: ${OIDC_PROVIDERS}
+    # No mail server here, so nothing that sends codes or links.
+    code:
+      enabled: false
+    link:
+      enabled: false
+
+  flows:
+    login:
+      ui_url: https://${AUTH_HOST}/login/
+      lifespan: 10m
+    settings:
+      ui_url: https://${AUTH_HOST}/login/?view=account
+      privileged_session_max_age: 15m
+    # No self-service sign-up: people are created with "setup-kratos.sh"; Google/GitHub accounts must be linked
+    # to an existing person first.
+    registration:
+      enabled: false
+      ui_url: https://${AUTH_HOST}/login/?view=signup
+    logout:
+      after:
+        default_browser_return_url: https://${AUTH_HOST}/login/?view=signed-out
+    error:
+      ui_url: https://${AUTH_HOST}/login/?view=error
+    recovery:
+      enabled: false
+    verification:
+      enabled: false
+
+session:
+  lifespan: 8h
+  cookie:
+    name: auth_session
+    same_site: Lax
+    persistent: false
+
+cookies:
+  same_site: Lax
+
+secrets:
+  cookie: [${COOKIE_SECRET}]
+  cipher: [${CIPHER_SECRET}]
+
+identity:
+  default_schema_id: person
+  schemas:
+    - id: person
+      url: file:///etc/kratos/identity.schema.json
+
+log:
+  level: info
+  format: text
+  leak_sensitive_values: false
