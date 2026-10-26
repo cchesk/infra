@@ -42,7 +42,9 @@ case ${1:-} in
     systemctl restart authelia
     echo "Password login for '$user' now uses a random password nobody knows. Sign in with your passkey."; exit ;;
 esac
-OWNER=${1:-$(sed -nE 's/^  ([a-z0-9_-]+):$/\1/p' "$CONF/users.yml" 2>/dev/null | head -1)}
+OWNER=${1:-}
+# On the first run users.yml doesn't exist yet (and pipefail would end the script silently), hence the || true.
+[ -n "$OWNER" ] || OWNER=$(sed -nE 's/^  ([a-z0-9_-]+):$/\1/p' "$CONF/users.yml" 2>/dev/null | head -1 || true)
 OWNER=${OWNER:-owner}
 [[ $OWNER =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || { echo "bad user name '$OWNER'"; exit 1; }
 
