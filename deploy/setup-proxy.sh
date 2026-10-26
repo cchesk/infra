@@ -48,6 +48,11 @@ cat > /etc/tinyproxy/filter <<'EOF'
 ^0\.
 EOF
 
+# Ubuntu confines tinyproxy with AppArmor; allow it to read the filter file (local override, as the profile advises).
+mkdir -p /etc/apparmor.d/local
+echo "  /etc/tinyproxy/filter r," > /etc/apparmor.d/local/tinyproxy
+apparmor_parser -r /etc/apparmor.d/tinyproxy 2>/dev/null || true
+
 # Second fence, enforced by the kernel for everything tinyproxy sends: no loopback (except the DNS stub), no
 # link-local (Hetzner metadata), no private ranges (IPv6 ones include the tailnet), and not this server's own addresses.
 mkdir -p /etc/systemd/system/tinyproxy.service.d
