@@ -97,4 +97,35 @@ Other inputs: `host` (Tailscale hostname, default `apps`) and `node_version` (de
 | Remove an app | `sudo systemctl disable --now app@<name>; sudo rm /etc/caddy/apps/<name>.caddy /etc/apps/<name>.*; sudo systemctl reload caddy; sudo rm -r /srv/apps/<name>` |
 | Close public SSH | once Tailscale SSH works: `sudo ufw delete allow OpenSSH` (the Hetzner web console stays as a way in) |
 
+## Optional: tailnet-only web proxy
+
+`deploy/setup-proxy.sh` installs tinyproxy on `http://<tailscale-ip>:8888`, so that a tailnet device (for example a
+Claude cloud session) can send its web traffic out through this server. It listens on the Tailscale IP only and
+accepts only Tailscale source addresses; no ufw change is needed because ufw already denies everything public except
+80/443. It refuses to reach this server's loopback services, the Hetzner metadata address, private ranges and tailnet
+host names. HTTPS `CONNECT` is limited to port 443.
+```bash
+sudo bash ~ops/infra/deploy/setup-proxy.sh
+```
+
+Tailscale policy, so a proxy client gets port 8888 on the server and nothing else:
+```jsonc
+"tagOwners": { "tag:proxy-client": ["autogroup:admin"] },
+"grants": [{ "src": ["tag:proxy-client"], "dst": ["tag:server"], "ip": ["tcp:8888"] }]
+```
+Then create a **reusable, ephemeral, pre-approved** auth key tagged `tag:proxy-client` (Settings → Keys).
+
+A Claude cloud container usually has no TUN device, so tailscaled runs in userspace mode there and the proxy is reached
+through tailscaled's own local proxy. In the environment's setup script (auth key in the `TS_AUTHKEY` env var; needs
+network access to `*.tailscale.com`):
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+apt-get install -y socat
+tailscaled --tun=userspace-networking --state=mem: --outbound-http-proxy-listen=127.0.0.1:1055 >/tmp/tailscaled.log 2>&1 &
+tailscale up --auth-key="$TS_AUTHKEY" --hostname=claude-cloud
+# Local port 8888 -> tailscaled -> apps (its Tailscale IP):8888
+socat TCP-LISTEN:8888,bind=127.0.0.1,fork,reuseaddr PROXY:127.0.0.1:100.104.209.31:8888,proxyport=1055 &
+export HTTPS_PROXY=http://127.0.0.1:8888 HTTP_PROXY=http://127.0.0.1:8888
+```
+
 Note: other repos run this workflow straight from `cchesk/infra@main`, so changes here affect every app.

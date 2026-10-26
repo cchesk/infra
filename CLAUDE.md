@@ -13,6 +13,7 @@ and say plainly what you did and what you found. This repo (`cchesk/infra`) is t
 | `/etc/apps/domain`, `<name>.port`, `<name>.env` | Domain and per-app port/PORT. Do not edit by hand |
 | `app@<name>.service` | systemd unit of each node app (static sites have no service) |
 | `/usr/local/bin/app-deploy` | Root helper that CI runs as `sudo app-deploy NAME RELEASE static|node SPA` |
+| `tinyproxy.service` | Tailnet-only web proxy on `<tailscale-ip>:8888`, set up by `deploy/setup-proxy.sh` (optional) |
 | `claude-ops.service` | The tmux session you are running in. **Never stop or restart it from inside your own session** |
 
 Deploys come from GitHub Actions over Tailscale SSH as user `deploy`; the reusable workflow is
