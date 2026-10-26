@@ -1,6 +1,7 @@
 'use strict';
 // Secrets page UI. Values come from /api/apps (behind the passkey login) and stay masked until the eye is tapped.
-// Value fields are text inputs masked with CSS, not password fields, so password managers leave them alone.
+// Value fields are text inputs masked with a dots-only font (app.css), not password fields, so password managers
+// neither offer nor save anything.
 
 const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const ICONS = {
@@ -8,9 +9,13 @@ const ICONS = {
   eyeOff: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M3 3l18 18"/>',
   copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>',
   check: '<path d="M4 12l5 5L20 6"/>',
-  remove: '<path d="M6 6l12 12M18 6L6 18"/>',
+  trash: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>',
+  pencil: '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
 };
-// Keeps password managers (iCloud Keychain, 1Password, LastPass, Bitwarden) from offering or saving these fields.
+// Keeps password managers (iCloud Keychain, 1Password, LastPass, Bitwarden) away from these fields.
 const NO_AUTOFILL = {
   autocomplete: 'off', autocorrect: 'off', spellcheck: 'false',
   'data-1p-ignore': '', 'data-lpignore': 'true', 'data-bwignore': '', 'data-form-type': 'other',
@@ -36,16 +41,17 @@ function el(tag, props = {}, ...children) {
 function icon(name) {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('class', 'i');
   svg.setAttribute('aria-hidden', 'true');
   svg.innerHTML = ICONS[name];
   return svg;
 }
 
-function iconButton(name, label, onclick) {
-  return el('button', { type: 'button', class: 'icon', title: label, 'aria-label': label, onclick }, icon(name));
+function iconButton(name, label, onclick, extra = '') {
+  return el('button', { type: 'button', class: `btn-icon ${extra}`.trim(), title: label, 'aria-label': label, onclick }, icon(name));
 }
 
-function setLabel(button, name, label) {
+function setIcon(button, name, label) {
   button.replaceChildren(icon(name));
   button.title = label;
   button.setAttribute('aria-label', label);
@@ -55,14 +61,15 @@ async function copyText(text, button) {
   try {
     await navigator.clipboard.writeText(text);
   } catch {
-    const t = el('textarea', { value: text, readonly: '', style: 'position:fixed;opacity:0' });
+    const t = el('textarea', { value: text, readonly: '', class: 'offscreen', 'aria-hidden': 'true' });
     document.body.append(t);
     t.select();
     document.execCommand('copy');
     t.remove();
   }
-  setLabel(button, 'check', 'Copied');
-  setTimeout(() => setLabel(button, 'copy', 'Copy'), 1200);
+  setIcon(button, 'check', 'Copied');
+  button.classList.add('done');
+  setTimeout(() => { setIcon(button, 'copy', 'Copy'); button.classList.remove('done'); }, 1200);
 }
 
 async function api(url, body) {
@@ -85,70 +92,77 @@ function setStatus(name, text, error) {
 
 function render() {
   const root = document.getElementById('apps');
-  if (!apps.length) return root.replaceChildren(el('p', {}, 'No node apps on this server.'));
+  if (!apps.length) {
+    return root.replaceChildren(el('div', { class: 'box empty' }, icon('server'), el('strong', {}, 'No node apps yet'),
+      'Apps appear here after their first deploy.'));
+  }
   root.replaceChildren(...apps.map(card));
 }
 
 function card(app) {
   const draft = editing.get(app.name);
   const st = status.get(app.name);
-  return el('section', { 'data-app': app.name },
-    el('div', { class: 'head' },
-      el('h2', {}, app.name),
-      draft ? null : el('button', { type: 'button', class: 'secondary', onclick: () => startEdit(app) }, 'Edit')),
-    draft ? editView(app, draft) : listView(app),
-    st ? el('p', { class: `msg ${st.error ? 'err' : 'ok'}` }, st.text) : null);
+  const n = app.secrets.length;
+  return el('section', { class: 'box', 'data-app': app.name },
+    el('div', { class: 'box-head' },
+      el('span', { class: 'app-icon' }, icon('server')),
+      el('h2', { class: 'app-name' }, app.name),
+      el('span', { class: 'counter' }, `${n} ${n === 1 ? 'secret' : 'secrets'}`),
+      draft ? null : el('button', { type: 'button', class: 'btn', onclick: () => startEdit(app) }, icon('pencil'), 'Edit')),
+    st ? el('p', { class: `flash ${st.error ? 'err' : 'ok'}`, role: 'status' }, st.text) : null,
+    draft ? editView(app, draft) : listView(app));
 }
 
 function listView(app) {
-  if (!app.secrets.length) return el('p', { class: 'muted' }, 'No secrets yet. Tap Edit to add some.');
+  if (!app.secrets.length) {
+    return el('div', { class: 'empty' }, icon('lock'), el('strong', {}, 'No secrets yet'), 'Click Edit to add the first one.');
+  }
   return el('ul', { class: 'rows' }, app.secrets.map(({ key, value }) => {
     const id = `${app.name}\n${key}`;
     const visible = shown.has(id);
-    const eye = iconButton(visible ? 'eyeOff' : 'eye', visible ? 'Hide' : 'Show', () => {
+    const eye = iconButton(visible ? 'eyeOff' : 'eye', visible ? 'Hide value' : 'Show value', () => {
       if (visible) shown.delete(id); else shown.add(id);
       render();
     });
     const copy = iconButton('copy', 'Copy', () => copyText(value, copy));
-    return el('li', {},
+    return el('li', { class: 'row' },
       el('code', { class: 'key' }, key),
-      el('span', { class: visible ? 'value shown' : 'value' }, visible ? (value || '(empty)') : '••••••••'),
+      el('span', { class: visible ? 'value shown' : 'value' }, visible ? (value || '(empty)') : '••••••••••••'),
       el('span', { class: 'actions' }, eye, copy));
   }));
 }
 
 function editView(app, draft) {
-  const rows = el('ul', { class: 'rows edit' }, draft.rows.map((row, i) => {
+  const rows = el('ul', { class: 'rows' }, draft.rows.map((row, i) => {
     const keyInput = el('input', {
-      class: 'key-input', value: row.key, placeholder: 'KEY_NAME', 'aria-label': 'Key', autocapitalize: 'characters',
+      class: 'input key-input', value: row.key, placeholder: 'KEY_NAME', 'aria-label': 'Key', autocapitalize: 'characters',
       ...NO_AUTOFILL, oninput: (e) => { row.key = e.target.value.trim(); },
     });
     const valueInput = el('input', {
-      class: 'value-input masked', value: row.value, placeholder: 'value', 'aria-label': `Value of ${row.key || 'new key'}`,
+      class: 'input value-input masked', value: row.value, placeholder: 'Value', 'aria-label': `Value of ${row.key || 'new key'}`,
       autocapitalize: 'off', ...NO_AUTOFILL, oninput: (e) => { row.value = e.target.value; },
     });
-    const eye = iconButton('eye', 'Show', () => {
+    const eye = iconButton('eye', 'Show value', () => {
       const masked = valueInput.classList.toggle('masked');
-      setLabel(eye, masked ? 'eye' : 'eyeOff', masked ? 'Show' : 'Hide');
+      setIcon(eye, masked ? 'eye' : 'eyeOff', masked ? 'Show value' : 'Hide value');
     });
-    const remove = iconButton('remove', 'Remove', () => { draft.rows.splice(i, 1); render(); });
-    return el('li', {}, keyInput, valueInput, eye, remove);
+    const remove = iconButton('trash', 'Remove', () => { draft.rows.splice(i, 1); render(); }, 'danger');
+    return el('li', { class: 'row edit-row' }, keyInput, valueInput, eye, remove);
   }));
   const add = () => {
     draft.rows.push({ key: '', value: '' });
     render();
-    document.querySelector(`section[data-app="${CSS.escape(app.name)}"] .edit li:last-child .key-input`)?.focus();
+    document.querySelector(`section[data-app="${CSS.escape(app.name)}"] .edit-row:last-child .key-input`)?.focus();
   };
   const restart = el('input', { type: 'checkbox', checked: draft.restart, onchange: (e) => { draft.restart = e.target.checked; } });
-  const saveButton = el('button', { type: 'button', onclick: () => save(app, draft, saveButton) }, 'Save changes');
+  const saveButton = el('button', { type: 'button', class: 'btn btn-primary', onclick: () => save(app, draft, saveButton) }, 'Save changes');
+  const cancel = () => { editing.delete(app.name); status.delete(app.name); render(); };
   return el('div', {},
     rows,
-    el('button', { type: 'button', class: 'secondary', onclick: add }, '+ Add secret'),
-    el('div', { class: 'footer' },
-      el('label', {}, restart, ' Save and restart app'),
-      el('div', { class: 'buttons' },
-        el('button', { type: 'button', class: 'secondary', onclick: () => { editing.delete(app.name); status.delete(app.name); render(); } }, 'Cancel'),
-        saveButton)));
+    el('div', { class: 'add-row' }, el('button', { type: 'button', class: 'btn btn-invisible', onclick: add }, icon('plus'), 'Add secret')),
+    el('div', { class: 'box-foot' },
+      el('label', { class: 'check' }, restart, 'Save and restart app'),
+      el('div', { class: 'buttons' }, el('button', { type: 'button', class: 'btn', onclick: cancel }, 'Cancel'), saveButton)));
 }
 
 function startEdit(app) {
@@ -184,4 +198,4 @@ window.addEventListener('beforeunload', (e) => { if (editing.size) e.preventDefa
 
 api('/api/apps')
   .then((data) => { apps = data.apps; render(); })
-  .catch((e) => document.getElementById('apps').replaceChildren(el('p', { class: 'msg err' }, e.message)));
+  .catch((e) => document.getElementById('apps').replaceChildren(el('div', { class: 'box' }, el('p', { class: 'flash err' }, e.message))));
