@@ -134,10 +134,13 @@ export HTTPS_PROXY=http://127.0.0.1:8888 HTTP_PROXY=http://127.0.0.1:8888
 with show and copy buttons) and lets you edit, add and remove them, then save and restart the app. Anyone who gets
 past the login can read every secret, so the login is what protects them.
 
-- **Login:** Authelia (from `apt.authelia.com`, auto-updated by unattended-upgrades) at `/auth`. You sign in with a
-  passkey (Touch ID / Face ID or a security key). The bootstrap password is replaced by an unknown random one.
-  Failed logins get you banned for an hour after 3 tries. The session cookie belongs to `secrets.<domain>` only, so
-  the other apps never see it.
+- **Login:** our own login page ([cchesk/loginpage](https://github.com/cchesk/loginpage), static files in
+  `/opt/loginpage`, served at `/login/`) in front of Authelia (from `apt.authelia.com`, auto-updated by
+  unattended-upgrades), which runs at `/authelia/`: the login page calls its API, and Authelia's own portal there is
+  still used for passkey settings (`/authelia/settings`) and the first-time setup. You sign in with a passkey
+  (Touch ID / Face ID or a security key); the bootstrap password is replaced by an unknown random one. Failed logins
+  get you banned for an hour after 3 tries. The session cookie belongs to `secrets.<domain>` only, so the other apps
+  never see it.
 - **Isolation:** the page (`deploy/secrets-ui/`, Node, no dependencies) listens on a unix socket that only Caddy can
   open, and trusts Caddy's `Remote-User` header only. It reads and writes through the root helper
   `/usr/local/bin/app-secret`, its only sudo right, which accepts only an existing node app and touches just
@@ -145,15 +148,17 @@ past the login can read every secret, so the login is what protects them.
   `env.local`, so a key set on the page wins. Keys that only exist in `env.local` aren't shown on the page.
 
 ```bash
+sudo -iu ops gh repo clone cchesk/loginpage ~/loginpage  # once; later: sudo -iu ops git -C ~/loginpage pull
 sudo bash ~ops/infra/deploy/setup-secrets.sh            # prints a one-time password and the first-login steps
 sudo bash ~ops/infra/deploy/setup-secrets.sh code       # one-time code while you add a passkey
 sudo bash ~ops/infra/deploy/setup-secrets.sh lock       # afterwards: passkey only
 ```
 Logo, favicons and the dots-only mask font live in `deploy/secrets-ui/assets/`; `node build.js` there regenerates
-the images from one geometry. Authelia gets the same logo and favicon through `server.asset_path` (it allows no other
-styling). Value fields are masked by that font rather than as password fields, so password managers stay out.
+the images from one geometry (full-colour logo; monochrome favicons). Copies are in the loginpage repo, and Authelia's
+own portal gets the logo and favicon through `server.asset_path`. Value fields are masked by that font rather than as
+password fields, so password managers stay out.
 
 Adding another passkey later needs `code` again (as root over SSH). Re-running the script keeps users, passkeys and
-keys; `deploy/app-secret` and `deploy/secrets-ui/` are re-installed from this checkout.
+keys; `deploy/app-secret`, `deploy/secrets-ui/` and the login page (from `~ops/loginpage`) are re-installed.
 
 Note: other repos run this workflow straight from `cchesk/infra@main`, so changes here affect every app.

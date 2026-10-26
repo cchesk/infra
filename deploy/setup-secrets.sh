@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# Optional: a web page for app secrets at https://secrets.<domain>, behind a passkey-only Authelia login.
+# Optional: a web page for app secrets at https://secrets.<domain>, behind a passkey-only login: our own login page
+# (github.com/cchesk/loginpage, at /login/) in front of Authelia (its API and portal at /authelia/).
 #   sudo bash ~ops/infra/deploy/setup-secrets.sh [USER]   install or update (USER: login name, default "owner")
 #   sudo bash ~ops/infra/deploy/setup-secrets.sh code     show the one-time code Authelia "emailed" (passkey setup)
 #   sudo bash ~ops/infra/deploy/setup-secrets.sh lock     replace the bootstrap password with an unknown random one
 # Secrets land in /etc/apps/secrets/<app>.env (root-only), which app@<app> loads after env.local. Run after
-# setup-server.sh. Safe to re-run. See deploy/README.md.
+# setup-server.sh, with the loginpage repo cloned to ~ops/loginpage (or set LOGINPAGE=<dir>). Safe to re-run.
+# See deploy/README.md.
 set -euo pipefail
 [ "$(id -u)" = 0 ] || { echo "run as root: sudo bash $0"; exit 1; }
 HERE=$(cd "$(dirname "$0")" && pwd)
 DOMAIN=$(cat /etc/apps/domain)
 HOST=secrets.$DOMAIN
 CONF=/etc/authelia
+LOGINPAGE=${LOGINPAGE:-/home/ops/loginpage}
 
 # New random password for USER in users.yml; prints it.
 set_password() {
@@ -50,6 +53,7 @@ OWNER=${1:-}
 [ -n "$OWNER" ] || OWNER=$(sed -nE 's/^  ([a-z0-9_-]+):$/\1/p' "$CONF/users.yml" 2>/dev/null | head -1 || true)
 OWNER=${OWNER:-owner}
 [[ $OWNER =~ ^[a-z][a-z0-9_-]{0,31}$ ]] || { echo "bad user name '$OWNER'"; exit 1; }
+[ -f "$LOGINPAGE/install.sh" ] || { echo "login page not found in $LOGINPAGE; first run:  sudo -iu ops gh repo clone cchesk/loginpage ~/loginpage"; exit 1; }
 
 echo "== authelia (apt.authelia.com, kept current by unattended-upgrades)"
 apt-get install -y -qq curl unattended-upgrades >/dev/null
@@ -81,10 +85,11 @@ UPGRADE="  experimental_enable_passkey_upgrade: true"
 if [ -e "$CONF/.locked" ]; then POLICY=one_factor; UPGRADE=""; fi
 
 cat > "$CONF/configuration.yml" <<EOF
-# Managed by deploy/setup-secrets.sh. Login portal for https://$HOST, served at /auth. Secret keys are in ./secrets/.
+# Managed by deploy/setup-secrets.sh. Identity backend for https://$HOST, served at /authelia: our login page (/login/)
+# calls its API, and its own portal there is still used for passkey settings. Secret keys are in ./secrets/.
 theme: auto
 server:
-  address: 'tcp://127.0.0.1:9091/auth'
+  address: 'tcp://127.0.0.1:9091/authelia'
   # Same logo and favicon as the secrets page (deploy/secrets-ui/assets).
   asset_path: $CONF/assets/
 log:
@@ -107,7 +112,7 @@ session:
   cookies:
     # The cookie is scoped to this one host, so the other apps on *.$DOMAIN never receive it.
     - domain: '$HOST'
-      authelia_url: 'https://$HOST/auth'
+      authelia_url: 'https://$HOST/authelia'
       default_redirection_url: 'https://$HOST/'
       inactivity: 15m
       expiration: 1h
@@ -170,7 +175,7 @@ id secrets-ui >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/
 install -m 755 "$HERE/app-secret" /usr/local/bin/app-secret
 install -d -m 755 /opt/secrets-ui /opt/secrets-ui/assets
 install -m 644 "$HERE"/secrets-ui/{server.js,app.js,app.css} /opt/secrets-ui/
-install -m 644 "$HERE"/secrets-ui/assets/{logo.svg,favicon.ico,apple-touch-icon.png,mask.woff2} /opt/secrets-ui/assets/
+install -m 644 "$HERE"/secrets-ui/assets/{logo.svg,favicon.svg,favicon.ico,apple-touch-icon.png,mask.woff2} /opt/secrets-ui/assets/
 install -d -m 700 /etc/apps/secrets
 echo "secrets-ui ALL=(root) NOPASSWD: /usr/local/bin/app-secret" > /etc/sudoers.d/secrets-ui
 chmod 440 /etc/sudoers.d/secrets-ui
@@ -208,6 +213,21 @@ cat > /etc/systemd/system/app@.service.d/secrets.conf <<'EOF'
 EnvironmentFile=-/etc/apps/secrets/%i.env
 EOF
 
+echo "== login page (from $LOGINPAGE)"
+bash "$LOGINPAGE/install.sh" /opt/loginpage >/dev/null
+cat > /opt/loginpage/config.json <<EOF
+{
+  "brand": { "name": "", "logo": "assets/logo.svg", "tagline": "", "footer": "" },
+  "backend": { "type": "authelia", "base": "/authelia" },
+  "defaultRedirect": "https://$HOST/",
+  "passkey": true,
+  "password": true,
+  "remember": false,
+  "providers": ["google", "apple", "github"],
+  "signup": true
+}
+EOF
+
 echo "== caddy site"
 mkdir -p /etc/caddy/sites
 grep -q '^import /etc/caddy/sites/' /etc/caddy/Caddyfile || echo 'import /etc/caddy/sites/*.caddy' >> /etc/caddy/Caddyfile
@@ -219,13 +239,25 @@ $HOST {
 	request_header -Remote-Groups
 	request_header -Remote-Email
 	request_header -Remote-Name
-	@auth path /auth /auth/*
-	handle @auth {
+	# Our login page: static files, loads without a session.
+	redir /login /login/
+	@login path /login/*
+	handle @login {
+		uri strip_prefix /login
+		root * /opt/loginpage
+		file_server
+		header Content-Security-Policy "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
+		header Cache-Control "no-cache"
+	}
+	# Authelia: the API the login page calls, and its own portal (passkey settings at /authelia/settings).
+	@authelia path /authelia /authelia/*
+	handle @authelia {
 		reverse_proxy 127.0.0.1:9091
 	}
+	# Everything else needs a session; without one, Authelia sends the visitor to our login page.
 	handle {
 		forward_auth 127.0.0.1:9091 {
-			uri /auth/api/authz/forward-auth
+			uri /authelia/api/authz/forward-auth?authelia_url=https://$HOST/login/
 			copy_headers Remote-User Remote-Groups Remote-Email Remote-Name
 		}
 		reverse_proxy unix//run/secrets-ui/http.sock {
@@ -261,13 +293,14 @@ if [ -n "$FIRST_PW" ]; then
   cat <<EOF
 
 First sign-in (once):
-  1. Open https://$HOST and sign in as '$OWNER' with this one-time password:  $FIRST_PW
-  2. Open https://$HOST/auth/settings -> Two-Factor Authentication -> add a security key / passkey (Touch ID / Face ID).
+  (Use Authelia's own portal at /authelia/ for these steps; it handles the two-step sign-in of the setup phase.)
+  1. Open https://$HOST/authelia/ and sign in as '$OWNER' with this one-time password:  $FIRST_PW
+  2. Open https://$HOST/authelia/settings -> Two-Factor Authentication -> add a security key / passkey (Touch ID / Face ID).
      When it asks for a one-time code:  sudo bash $0 code
      Add a second passkey too (another device or a security key) so you can't lock yourself out.
-  3. Sign out and use "Sign in with a passkey" on the login page. For now it still asks for the password after the
+  3. Sign out and use "Sign in with a passkey" on /authelia/. For now it still asks for the password after the
      passkey (that is the two-factor rule, and this first passkey login is what flags the credential as a passkey).
      Do this on every device you registered, then:  sudo bash $0 lock
-     After that, the passkey alone is enough.
+     After that, the passkey alone is enough, and https://$HOST/login/ is the sign-in page.
 EOF
 fi
