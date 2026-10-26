@@ -11,6 +11,7 @@ and say plainly what you did and what you found. This repo (`cchesk/infra`) is t
 | `/srv/apps/<name>/env.local` | The app's secrets. Do not read, print or copy these |
 | `/etc/apps/secrets/<name>.env` | Secrets set on `https://secrets.cchesk.com` (root-only; loaded after `env.local`). Never read |
 | `secrets-ui.service`, `authelia.service` | That page and its passkey login (`deploy/setup-secrets.sh`, optional). To give an app a secret, send the owner to the page |
+| `~/loginpage` → `/opt/loginpage` | Login page in front of it (`cchesk/loginpage`, served at `/login/`; Authelia at `/authelia/`). Update: `git -C ~/loginpage pull`, then the owner re-runs `setup-secrets.sh` |
 | `/etc/caddy/apps/<name>.caddy` | Generated per-app Caddy site; written by `app-deploy`. Don't hand-edit |
 | `/etc/apps/domain`, `<name>.port`, `<name>.env` | Domain and per-app port/PORT. Do not edit by hand |
 | `app@<name>.service` | systemd unit of each node app (static sites have no service) |

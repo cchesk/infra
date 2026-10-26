@@ -42,6 +42,7 @@ const STATIC = Object.fromEntries([
   ['/favicon.ico', 'assets/favicon.ico', 'image/x-icon'],
   ['/apple-touch-icon.png', 'assets/apple-touch-icon.png', 'image/png'],
   ['/assets/logo.svg', 'assets/logo.svg', 'image/svg+xml'],
+  ['/assets/favicon.svg', 'assets/favicon.svg', 'image/svg+xml'],
   ['/assets/mask.woff2', 'assets/mask.woff2', 'font/woff2'],
 ].map(([url, file, type]) => [url, { body: fs.readFileSync(path.join(__dirname, file)), type }]));
 
@@ -50,7 +51,7 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#0d1117">
 <title>Secrets · ${esc(DOMAIN)}</title>
-<link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
 <link rel="alternate icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <link rel="preload" href="/assets/mask.woff2" as="font" type="font/woff2" crossorigin>
@@ -61,7 +62,7 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
   <span class="crumb">${esc(DOMAIN)}</span>
   <span class="spacer"></span>
   <span class="user"><span class="avatar" aria-hidden="true">${esc(OWNER.slice(0, 1))}</span><span class="user-name">${esc(OWNER)}</span></span>
-  <a class="btn btn-header" href="/auth/logout">Sign out</a>
+  <a class="btn btn-header" href="/login/?logout">Sign out</a>
 </div></header>
 <main class="wrap">
   <div class="page-head">
