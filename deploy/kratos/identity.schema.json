@@ -1,0 +1,37 @@
+{
+  "$id": "https://github.com/cchesk/infra/deploy/kratos/identity.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Person",
+  "type": "object",
+  "properties": {
+    "traits": {
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "format": "email",
+          "title": "Email",
+          "maxLength": 320,
+          "ory.sh/kratos": {
+            "credentials": {
+              "password": { "identifier": true },
+              "passkey": { "display_name": true }
+            }
+          }
+        },
+        "username": {
+          "type": "string",
+          "title": "Username",
+          "pattern": "^[a-z][a-z0-9_-]{0,31}$",
+          "ory.sh/kratos": {
+            "credentials": {
+              "password": { "identifier": true }
+            }
+          }
+        }
+      },
+      "required": ["email"],
+      "additionalProperties": false
+    }
+  }
+}
