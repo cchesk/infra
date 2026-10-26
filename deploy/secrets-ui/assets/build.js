@@ -1,9 +1,12 @@
 'use strict';
-// Draws the logo (a hexagon with a keyhole) from one geometry into every format we need:
-//   logo.svg, logo.png    the full-colour logo (blue to violet): page headers, Authelia's portal (server.asset_path)
-//   favicon.svg/.ico      monochrome: white mark on a black rounded square (.ico has 16, 32 and 48 px)
-//   apple-touch-icon.png  monochrome, full square (iOS rounds the corners itself)
-// The same files are copied into the loginpage repo (assets/).
+// Draws the logo (a hexagon with a keyhole, no background) from one geometry into every format we need:
+//   logo.svg, favicon.svg  the same adaptive mark: white in dark mode, near-black in light mode (CSS media query inside
+//                          the SVG, which works in <img> and as a favicon)
+//   logo-white.svg         the mark always white, for dark bars (the secrets page's top bar)
+//   logo.png, favicon.ico  neutral grey, readable on light and dark (Authelia's portal takes only PNG/ICO; .ico has
+//                          16, 32 and 48 px)
+//   apple-touch-icon.png   white on black: iOS fills transparency with black anyway
+// The same files are copied into the loginpage repo (public/assets/).
 // No dependencies: a tiny supersampling rasterizer plus a PNG/ICO writer. Run `node build.js` after changing it and
 // commit the outputs. (mask.woff2 is text-security-disc from github.com/noppa/text-security, see mask-font-LICENSE.txt.)
 const fs = require('node:fs');
@@ -13,20 +16,13 @@ const zlib = require('node:zlib');
 // Geometry, in a 64x64 box.
 const HEX = [[32, 2], [57.98, 17], [57.98, 47], [32, 62], [6.02, 47], [6.02, 17]];
 const HOLE = { cx: 32, cy: 26, r: 7, top: 32.32, x1: 29, x2: 35, bottom: 44, b1: 27, b2: 37 };
-const FROM = [0x3b, 0x82, 0xf6]; // #3b82f6
-const TO = [0x7c, 0x3a, 0xed]; // #7c3aed
+const GREY = [0x8b, 0x94, 0x9e]; // #8b949e
 
 const MARK = `M${HEX.map((p) => p.join(' ')).join('L')}Z
 M${HOLE.x1} ${HOLE.top}A${HOLE.r} ${HOLE.r} 0 1 1 ${HOLE.x2} ${HOLE.top}L${HOLE.b2} ${HOLE.bottom}L${HOLE.b1} ${HOLE.bottom}Z`;
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs>
-<path fill="url(#g)" fill-rule="evenodd" d="${MARK}"/>
-</svg>
-`;
-// Monochrome favicon: the mark at 80% inside a black square with 22% corner radius.
-const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-<rect width="64" height="64" rx="14" fill="#000"/>
-<path fill="#fff" fill-rule="evenodd" transform="translate(6.4 6.4) scale(0.8)" d="${MARK}"/>
+<style>path{fill:#1f2328}@media (prefers-color-scheme:dark){path{fill:#fff}}</style>
+<path fill-rule="evenodd" d="${MARK}"/>
 </svg>
 `;
 
@@ -42,9 +38,9 @@ const TRAPEZOID = [[HOLE.x1, HOLE.top - 1], [HOLE.x2, HOLE.top - 1], [HOLE.b2, H
 const inMark = (x, y) => inPolygon(x, y, HEX)
   && !((x - HOLE.cx) ** 2 + (y - HOLE.cy) ** 2 < HOLE.r ** 2 || inPolygon(x, y, TRAPEZOID));
 
-// RGBA pixels of the mark at `size` px with `pad` px of margin. Options: color (RGB; default the gradient),
+// RGBA pixels of the mark at `size` px with `pad` px of margin. Options: color (RGB),
 // bg (RGB background) and radius (corner radius of the background as a fraction of size; 0 = full square).
-function render(size, pad = 0, { color = null, bg = null, radius = 0 } = {}) {
+function render(size, pad = 0, { color = GREY, bg = null, radius = 0 } = {}) {
   const r = radius * size;
   const inBg = (x, y) => {
     const dx = Math.max(r - x, x - (size - r), 0), dy = Math.max(r - y, y - (size - r), 0);
@@ -61,8 +57,7 @@ function render(size, pad = 0, { color = null, bg = null, radius = 0 } = {}) {
         if (bg && inBg(px_, py_)) bgHits++;
       }
       const a = hits / (S * S), bgA = bgHits / (S * S);
-      const t = Math.min(1, Math.max(0, ((x - pad) / scale + (y - pad) / scale) / 128 - 0.03));
-      const c = color || FROM.map((f, i) => f + (TO[i] - f) * t);
+      const c = color;
       const o = (y * size + x) * 4;
       if (bg) {
         // The mark lies inside the background, so coverage of the two composes simply.
@@ -125,8 +120,9 @@ function ico(images) {
 const out = (name, data) => fs.writeFileSync(path.join(__dirname, name), data);
 const WHITE = [255, 255, 255], BLACK = [0, 0, 0];
 out('logo.svg', SVG);
+out('favicon.svg', SVG);
+out('logo-white.svg', SVG.replace(/<style>.*<\/style>\n/, '').replace('<path ', '<path fill="#fff" '));
 out('logo.png', png(256, render(256, 8)));
-out('favicon.svg', FAVICON_SVG);
-out('favicon.ico', ico([16, 32, 48].map((size) => ({ size, data: png(size, render(size, size * 0.1, { color: WHITE, bg: BLACK, radius: 0.22 })) }))));
+out('favicon.ico', ico([16, 32, 48].map((size) => ({ size, data: png(size, render(size, size >= 32 ? 1 : 0)) }))));
 out('apple-touch-icon.png', png(180, render(180, 36, { color: WHITE, bg: BLACK })));
-console.log('wrote logo.svg, logo.png, favicon.svg, favicon.ico, apple-touch-icon.png');
+console.log('wrote logo.svg, favicon.svg, logo-white.svg, logo.png, favicon.ico, apple-touch-icon.png');

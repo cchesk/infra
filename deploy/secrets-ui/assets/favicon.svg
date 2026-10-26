@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-<rect width="64" height="64" rx="14" fill="#000"/>
-<path fill="#fff" fill-rule="evenodd" transform="translate(6.4 6.4) scale(0.8)" d="M32 2L57.98 17L57.98 47L32 62L6.02 47L6.02 17Z
+<style>path{fill:#1f2328}@media (prefers-color-scheme:dark){path{fill:#fff}}</style>
+<path fill-rule="evenodd" d="M32 2L57.98 17L57.98 47L32 62L6.02 47L6.02 17Z
 M29 32.32A7 7 0 1 1 35 32.32L37 44L27 44Z"/>
 </svg>
