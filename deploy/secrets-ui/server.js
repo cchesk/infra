@@ -43,6 +43,7 @@ const STATIC = Object.fromEntries([
   ['/apple-touch-icon.png', 'assets/apple-touch-icon.png', 'image/png'],
   ['/assets/logo.svg', 'assets/logo.svg', 'image/svg+xml'],
   ['/assets/favicon.svg', 'assets/favicon.svg', 'image/svg+xml'],
+  ['/assets/logo-white.svg', 'assets/logo-white.svg', 'image/svg+xml'],
   ['/assets/mask.woff2', 'assets/mask.woff2', 'font/woff2'],
 ].map(([url, file, type]) => [url, { body: fs.readFileSync(path.join(__dirname, file)), type }]));
 
@@ -58,7 +59,7 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <link rel="stylesheet" href="/app.css">
 </head><body>
 <header class="topbar"><div class="wrap topbar-inner">
-  <a class="brand" href="/"><img src="/assets/logo.svg" alt="" width="28" height="28">Secrets</a>
+  <a class="brand" href="/"><img src="/assets/logo-white.svg" alt="" width="28" height="28">Secrets</a>
   <span class="crumb">${esc(DOMAIN)}</span>
   <span class="spacer"></span>
   <span class="user"><span class="avatar" aria-hidden="true">${esc(OWNER.slice(0, 1))}</span><span class="user-name">${esc(OWNER)}</span></span>

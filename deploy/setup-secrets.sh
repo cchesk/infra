@@ -175,7 +175,7 @@ id secrets-ui >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/
 install -m 755 "$HERE/app-secret" /usr/local/bin/app-secret
 install -d -m 755 /opt/secrets-ui /opt/secrets-ui/assets
 install -m 644 "$HERE"/secrets-ui/{server.js,app.js,app.css} /opt/secrets-ui/
-install -m 644 "$HERE"/secrets-ui/assets/{logo.svg,favicon.svg,favicon.ico,apple-touch-icon.png,mask.woff2} /opt/secrets-ui/assets/
+install -m 644 "$HERE"/secrets-ui/assets/{logo.svg,logo-white.svg,favicon.svg,favicon.ico,apple-touch-icon.png,mask.woff2} /opt/secrets-ui/assets/
 install -d -m 700 /etc/apps/secrets
 echo "secrets-ui ALL=(root) NOPASSWD: /usr/local/bin/app-secret" > /etc/sudoers.d/secrets-ui
 chmod 440 /etc/sudoers.d/secrets-ui

@@ -1,11 +1,11 @@
-/* Secrets page. GitHub-like neutrals; the accent matches Authelia's default theme so login and page feel like one. */
+/* Secrets page. GitHub-like neutrals with a violet accent (#7c3aed, from the original logo gradient). */
 @font-face { font-family: "mask"; src: url(/assets/mask.woff2) format("woff2"); font-display: block; }
 
 :root {
   color-scheme: light;
   --bg: #f6f8fa; --surface: #ffffff; --subtle: #f6f8fa; --border: #d1d9e0; --border-muted: #d1d9e0b3;
   --fg: #1f2328; --muted: #59636e;
-  --accent: #1976d2; --accent-hover: #1565c0; --accent-fg: #ffffff; --focus: #1976d240;
+  --accent: #7c3aed; --accent-hover: #6d28d9; --accent-fg: #ffffff; --focus: #7c3aed40;
   --btn: #f6f8fa; --btn-hover: #eef1f4;
   --danger: #d1242f; --danger-bg: #ffebe9; --danger-border: #ff818266;
   --success: #1a7f37; --success-bg: #dafbe1; --success-border: #4ac26b66;
@@ -19,7 +19,7 @@
     color-scheme: dark;
     --bg: #0d1117; --surface: #151b23; --subtle: #10151c; --border: #3d444d; --border-muted: #3d444db3;
     --fg: #f0f6fc; --muted: #9198a1;
-    --accent: #90caf9; --accent-hover: #a6d4fa; --accent-fg: #0d1117; --focus: #90caf966;
+    --accent: #a78bfa; --accent-hover: #c4b5fd; --accent-fg: #0d1117; --focus: #a78bfa66;
     --btn: #212830; --btn-hover: #2a313c;
     --danger: #f85149; --danger-bg: #25171c; --danger-border: #f8514966;
     --success: #3fb950; --success-bg: #15241c; --success-border: #2ea04366;
@@ -42,8 +42,8 @@ a:hover { text-decoration: underline; }
 .crumb { color: var(--topbar-muted); padding-left: 12px; border-left: 1px solid var(--topbar-border); }
 .spacer { flex: 1; }
 .user { display: flex; align-items: center; gap: 8px; color: var(--topbar-muted); }
-.avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: #fff;
-  background: linear-gradient(135deg, #3b82f6, #7c3aed); font-size: 12px; font-weight: 600; text-transform: uppercase; }
+.avatar { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: var(--accent-fg);
+  background: var(--accent); font-size: 12px; font-weight: 600; text-transform: uppercase; }
 @media (max-width: 600px) { .crumb, .user-name { display: none; } }
 
 /* Page */
