@@ -65,6 +65,34 @@ wait_ready() {
   journalctl -u kratos -n 30 --no-pager; exit 1
 }
 
+# Asks the provider's token endpoint to exchange a made-up code with the credentials. The error tells whether the
+# client ID and secret are accepted: "bad code" means yes, "bad client" means no (it can't sign anyone in either way).
+# Returns 0 accepted, 1 rejected (and prints why), 2 couldn't tell (offline, unexpected answer).
+check_credentials() {
+  local slug=$1 id=$2 secret=$3 answer verdict
+  if [ "$slug" = google ]; then
+    answer=$(curl -sS -m 20 https://oauth2.googleapis.com/token --data-urlencode "client_id=$id" --data-urlencode "client_secret=$secret" \
+      -d code=invalid -d "redirect_uri=https://$AUTH_HOST/kratos/self-service/methods/oidc/callback/google" -d grant_type=authorization_code 2>/dev/null) || return 2
+  else
+    answer=$(curl -sS -m 20 -H 'Accept: application/json' https://github.com/login/oauth/access_token \
+      --data-urlencode "client_id=$id" --data-urlencode "client_secret=$secret" -d code=invalid 2>/dev/null) || return 2
+  fi
+  verdict=$(printf '%s' "$answer" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+except Exception:
+    print("unknown"); sys.exit()
+e = d.get("error", "")
+print("ok" if e in ("invalid_grant", "bad_verification_code") else
+      "bad:" + (d.get("error_description") or e or "rejected") if e in ("invalid_client", "incorrect_client_credentials", "Not Found") else "unknown")')
+  case $verdict in
+    ok) return 0 ;;
+    bad:*) echo "  ${verdict#bad:}"; return 1 ;;
+    *) return 2 ;;
+  esac
+}
+
 set_source() {
   local slug=$1 name=$2 id secret
   [ -f "$ETC/kratos.yml" ] || { echo "install Kratos first: sudo bash $0 <owner-email>"; exit 1; }
@@ -72,7 +100,19 @@ set_source() {
   echo "  https://$AUTH_HOST/kratos/self-service/methods/oidc/callback/$slug"
   read -rp "  $name client ID: " id
   read -rsp "  $name client secret (not shown): " secret; echo
+  id=$(printf '%s' "$id" | tr -d '[:space:]'); secret=$(printf '%s' "$secret" | tr -d '[:space:]')
   [ -n "$id" ] && [ -n "$secret" ] || { echo "both are needed; nothing changed"; exit 1; }
+  if [ "$slug" = google ]; then
+    [[ $id == *.apps.googleusercontent.com ]] || echo "  note: a Google client ID normally ends in .apps.googleusercontent.com (did the ID and secret get swapped?)"
+    [[ $secret == GOCSPX-* ]] && true || echo "  note: a Google client secret normally starts with GOCSPX-"
+  fi
+  echo "  checking the credentials with $name..."
+  rc=0; check_credentials "$slug" "$id" "$secret" || rc=$?
+  case $rc in
+    0) echo "  $name accepts them." ;;
+    1) echo "  $name rejected this client ID / secret, so nothing was saved. Copy them again from $name (for Google: Credentials -> your OAuth client -> add a new secret, and copy it right away)."; exit 1 ;;
+    *) echo "  couldn't verify them (no answer from $name); saving anyway." ;;
+  esac
   set_kv "$ETC/oidc.env" "${slug^^}_CLIENT_ID" "$id"
   set_kv "$ETC/oidc.env" "${slug^^}_CLIENT_SECRET" "$secret"
   render_config
