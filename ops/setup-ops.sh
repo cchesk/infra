@@ -27,7 +27,7 @@ Cmnd_Alias OPS_SERVICES = /usr/bin/systemctl, /usr/bin/journalctl
 Cmnd_Alias OPS_PACKAGES = /usr/bin/apt-get, /usr/bin/apt, /usr/sbin/needrestart
 Cmnd_Alias OPS_NETWORK  = /usr/sbin/ufw, /usr/bin/tailscale, /usr/bin/caddy
 Cmnd_Alias OPS_POWER    = /usr/sbin/reboot, /usr/sbin/shutdown
-Cmnd_Alias OPS_APPS     = /usr/local/bin/app-deploy, /usr/bin/dmesg
+Cmnd_Alias OPS_APPS     = /usr/local/bin/app-deploy, /usr/local/bin/app-remove, /usr/bin/dmesg
 ops ALL=(root) NOPASSWD: OPS_SERVICES, OPS_PACKAGES, OPS_NETWORK, OPS_POWER, OPS_APPS
 EOF
 chmod 440 /etc/sudoers.d/ops

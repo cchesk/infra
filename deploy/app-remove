@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Removes one app that app-deploy published: its Caddy site, its systemd service (node apps), its port/env
+# registry entries and its files under /srv/apps/NAME. The ops user may run it as root:
+#   sudo app-remove NAME
+# It only touches what app-deploy creates for NAME. Server tools (secrets page, auth, …) live elsewhere and are
+# never matched. Before deleting, the app's secrets (env.local and /etc/apps/secrets/NAME.env) are kept in a
+# root-only archive under /var/backups/apps/, so a mistaken removal can be undone by redeploying.
+set -euo pipefail
+die() { echo "app-remove: $*" >&2; exit 1; }
+
+NAME=${1:-}
+[[ $NAME =~ ^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$ ]] || die "usage: app-remove NAME (lowercase letters, digits, dashes)"
+CONF=/etc/caddy/apps/$NAME.caddy
+DIR=/srv/apps/$NAME
+[ -f "$CONF" ] || [ -d "$DIR" ] || die "no app '$NAME' (neither $CONF nor $DIR exists)"
+
+# Keep the app's secrets, just in case.
+backup=/var/backups/apps/$NAME-$(date -u +%Y%m%d%H%M%S).tar.gz
+keep=()
+[ -f "$DIR/env.local" ] && keep+=("$DIR/env.local")
+[ -f "/etc/apps/secrets/$NAME.env" ] && keep+=("/etc/apps/secrets/$NAME.env")
+if [ ${#keep[@]} -gt 0 ]; then
+  install -d -m 700 /var/backups/apps
+  (umask 077 && tar -czf "$backup" "${keep[@]}" 2>/dev/null)
+  echo "secrets kept in $backup"
+fi
+
+# Node app: stop and disable its service.
+if systemctl list-unit-files "app@$NAME.service" >/dev/null 2>&1 && systemctl is-enabled --quiet "app@$NAME" 2>/dev/null; then
+  systemctl disable --now "app@$NAME" >/dev/null 2>&1 || true
+fi
+systemctl stop "app@$NAME" >/dev/null 2>&1 || true
+
+# Caddy site: remove, validate, reload; restore it if the remaining config doesn't validate.
+if [ -f "$CONF" ]; then
+  mv "$CONF" "$CONF.removed"
+  if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+    mv "$CONF.removed" "$CONF"
+    die "Caddy config would be invalid without $NAME; nothing removed"
+  fi
+  rm -f "$CONF.removed"
+  systemctl reload caddy
+fi
+
+rm -f "/etc/apps/$NAME.port" "/etc/apps/$NAME.env" "/etc/apps/secrets/$NAME.env"
+rm -rf -- "$DIR"
+echo "removed https://$NAME.$(cat /etc/apps/domain)"

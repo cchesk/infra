@@ -63,6 +63,7 @@
       "Bash(sudo ufw *)",
       "Bash(sudo tailscale *)",
       "Bash(sudo app-deploy *)",
+      "Bash(sudo app-remove *)",
       "Bash(rm -r*)",
       "Bash(rm -f*)"
     ],
