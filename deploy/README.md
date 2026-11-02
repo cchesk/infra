@@ -94,7 +94,7 @@ Other inputs: `host` (Tailscale hostname, default `apps`) and `node_version` (de
 | Secrets for a node app | `/srv/apps/<name>/env.local` on the server, one `KEY=value` per line, then `sudo systemctl restart app@<name>` |
 | Logs | `journalctl -u app@<name> -f`, `journalctl -u caddy -f` |
 | Roll back | `cd /srv/apps/<name> && ln -sfn releases/<older> current`, then restart the service for node apps |
-| Remove an app | `sudo systemctl disable --now app@<name>; sudo rm /etc/caddy/apps/<name>.caddy /etc/apps/<name>.*; sudo systemctl reload caddy; sudo rm -r /srv/apps/<name>` |
+| Remove an app | `sudo app-remove <name>` (as root or `ops`): removes the Caddy site, the `app@<name>` service, `/etc/apps/<name>.*` and `/srv/apps/<name>`. The app's secrets are archived in `/var/backups/apps/` first |
 | Close public SSH | once Tailscale SSH works: `sudo ufw delete allow OpenSSH` (the Hetzner web console stays as a way in) |
 
 ## Optional: tailnet-only web proxy

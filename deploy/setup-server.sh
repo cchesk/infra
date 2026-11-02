@@ -31,6 +31,9 @@ chown deploy:deploy /srv/apps
 echo "$DOMAIN" > /etc/apps/domain
 curl -fsSL "$SRC/app-deploy" -o /usr/local/bin/app-deploy
 chmod 755 /usr/local/bin/app-deploy
+# Removing an app is for the ops user only (see ops/setup-ops.sh), never for CI.
+curl -fsSL "$SRC/app-remove" -o /usr/local/bin/app-remove
+chmod 755 /usr/local/bin/app-remove
 # CI may run the deploy helper as root and nothing else.
 echo "deploy ALL=(root) NOPASSWD: /usr/local/bin/app-deploy" > /etc/sudoers.d/apps
 chmod 440 /etc/sudoers.d/apps

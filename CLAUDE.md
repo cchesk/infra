@@ -18,6 +18,7 @@ and say plainly what you did and what you found. This repo (`cchesk/infra`) is t
 | `/etc/apps/domain`, `<name>.port`, `<name>.env` | Domain and per-app port/PORT. Do not edit by hand |
 | `app@<name>.service` | systemd unit of each node app (static sites have no service) |
 | `/usr/local/bin/app-deploy` | Root helper that CI runs as `sudo app-deploy NAME RELEASE static|node SPA` |
+| `/usr/local/bin/app-remove` | Root helper to remove one app: `sudo app-remove NAME` (Caddy site, service, registry, files). Keeps its secrets in `/var/backups/apps/`. **Ask first** |
 | `tinyproxy.service` | Tailnet-only web proxy on `<tailscale-ip>:8888`, set up by `deploy/setup-proxy.sh` (optional) |
 | `claude-ops.service` | The tmux session you are running in. **Never stop or restart it from inside your own session** |
 
@@ -26,7 +27,7 @@ Deploys come from GitHub Actions over Tailscale SSH as user `deploy`; the reusab
 
 ## Your sudo allowlist
 `systemctl`, `journalctl`, `apt-get`/`apt`, `needrestart`, `ufw`, `tailscale`, `caddy`, `reboot`/`shutdown`, `dmesg`,
-`app-deploy` (see `/etc/sudoers.d/ops`). Anything else needs the owner.
+`app-deploy`, `app-remove` (see `/etc/sudoers.d/ops`). Anything else needs the owner.
 
 ## Routine jobs
 - **Health check:** `systemctl --failed`, `systemctl is-active caddy tailscaled`, `df -h /`, `free -h`, `uptime`,
@@ -48,7 +49,7 @@ Deploys come from GitHub Actions over Tailscale SSH as user `deploy`; the reusab
 ## How permissions work here
 The session runs in `auto` permission mode (flag in `ops/setup-ops.sh`). `.claude/settings.json` adds: read-only commands pre-approved
 (`allow`); commands that change the system always prompt the owner, even in auto mode (`ask`: reboot, restarts, upgrades/installs,
-ufw, tailscale, `app-deploy`, `rm -r`); and hard blocks (`deny`: reading `env.local`, stopping your own `claude-ops` session).
+ufw, tailscale, `app-deploy`, `app-remove`, `rm -r`); and hard blocks (`deny`: reading `env.local`, stopping your own `claude-ops` session).
 If you need something blocked, ask the owner; don't look for a way around a rule.
 
 ## Rules
