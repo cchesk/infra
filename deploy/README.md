@@ -49,9 +49,20 @@ Open the Tailscale login link it prints. The machine joins your tailnet as `apps
 **4. Each repo that deploys:** Settings → Secrets and variables → Actions → add the secrets `TS_OAUTH_CLIENT_ID` and
 `TS_OAUTH_SECRET`. Use the same values for every repo. A repo without them skips the deploy with a warning.
 
+Instead of pasting them every time, keep each value in a file named after the secret in `~/.secrets` on your computer
+(`~/.secrets/TS_OAUTH_CLIENT_ID`, `~/.secrets/TS_OAUTH_SECRET`; `chmod 700 ~/.secrets && chmod 600 ~/.secrets/*`) and
+run, with the GitHub CLI logged in:
+```bash
+deploy/repo-secrets OWNER/REPO            # uploads both deploy secrets
+deploy/repo-secrets OWNER/REPO --check    # shows which the repo has (names and dates, never values)
+deploy/repo-secrets OWNER/REPO NAME...    # any other secrets from ~/.secrets/NAME
+```
+Values go to `gh secret set` on stdin, never on the command line or in output. `SECRETS_DIR` overrides `~/.secrets`.
+
 ## Adding a new project
 
-Add `.github/workflows/deploy.yml` to the repo and add the two secrets. The first push creates
+Add `.github/workflows/deploy.yml` to the repo and add the two secrets (`deploy/repo-secrets OWNER/REPO`). The first
+push creates
 `https://<name>.yourdomain.com`.
 
 Static site (Vite, React, plain HTML):
