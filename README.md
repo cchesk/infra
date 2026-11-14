@@ -6,6 +6,7 @@ Everything about the apps server (`*.cchesk.com` on Hetzner, reached over Tailsc
 |---|---|
 | [`deploy/`](deploy/README.md) | One-time server setup (Caddy, Node, Tailscale, `deploy` user), the `app-deploy` helper, and how any repo deploys itself with a few lines of workflow |
 | [`.github/workflows/deploy-app.yml`](.github/workflows/deploy-app.yml) | The reusable deploy workflow other repos call: `uses: cchesk/infra/.github/workflows/deploy-app.yml@main` |
+| [`deploy/repo-secrets`](deploy/repo-secrets) | Run on your computer: uploads a repo's deploy secrets from `~/.secrets` with the GitHub CLI |
 | [`ops/setup-ops.sh`](ops/setup-ops.sh) | Runs Claude Code on the server as a limited `ops` user, reachable from the Claude iOS app (Remote Control) |
 | [`CLAUDE.md`](CLAUDE.md) | Briefing for that on-server Claude: layout, routine jobs, rules |
 
